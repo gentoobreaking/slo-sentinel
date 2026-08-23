@@ -1,0 +1,90 @@
+// Package store 提供感測狀態與預測紀錄的持久化（SQLite，WAL 模式）。
+//
+// T004：schema 以 migrations 版本機制管理；所有寫入經單一 writer 連線序列化，
+// 讀取可併發。UI（T016）不直接開啟此檔——一律走 sentinel 唯讀 API（spec.md §2.5）。
+package store
+
+import (
+	"database/sql"
+	"fmt"
+	"time"
+
+	_ "github.com/mattn/go-sqlite3"
+)
+
+// Store 封裝 SQLite 連線與遷移。
+type Store struct {
+	db *sql.DB
+}
+
+// Open 開啟（必要時建立）位於 path 的資料庫並執行遷移。
+func Open(path string) (*Store, error) {
+	// busy_timeout：WAL 模式下避免寫入衝突立即報錯；foreign_keys 依契約開啟
+	// mattn/go-sqlite3 DSN 參數：WAL 日誌模式 + busy timeout（毫秒）+ 外鍵開啟
+	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1", path)
+	db, err := sql.Open("sqlite3", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite %s: %w", path, err)
+	}
+	// modernc/sqlite 建議限制單一寫入連線；讀取仍可透過多連線，但簡單起見固定 1 寫
+	db.SetMaxOpenConns(1)
+	s := &Store{db: db}
+	if err := s.migrate(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+func (s *Store) Close() error { return s.db.Close() }
+
+var migrations = []string{
+	`CREATE TABLE IF NOT EXISTS schema_migrations (
+		version INTEGER PRIMARY KEY,
+		applied_at TEXT NOT NULL
+	)`,
+	`CREATE TABLE IF NOT EXISTS sensor_state (
+		sensor_id      TEXT PRIMARY KEY,
+		state          TEXT NOT NULL,
+		last_value     REAL,
+		last_notify_at TEXT,
+		updated_at     TEXT NOT NULL
+	)`,
+	`CREATE TABLE IF NOT EXISTS predictions (
+		id              INTEGER PRIMARY KEY AUTOINCREMENT,
+		sensor_id       TEXT NOT NULL,
+		predicted_at    TEXT NOT NULL,
+		eta_aggressive  REAL,
+		eta_conservative REAL,
+		actual_value    REAL,
+		catalog_version TEXT,
+		created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_predictions_sensor ON predictions(sensor_id, predicted_at)`,
+}
+
+func (s *Store) migrate() error {
+	if _, err := s.db.Exec(migrations[0]); err != nil {
+		return fmt.Errorf("create schema_migrations: %w", err)
+	}
+	for i, m := range migrations {
+		if i == 0 {
+			continue // 第 0 條是遷移表本身
+		}
+		var done int
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version = ?`, i).Scan(&done); err != nil {
+			return err
+		}
+		if done > 0 {
+			continue
+		}
+		if _, err := s.db.Exec(m); err != nil {
+			return fmt.Errorf("migration %d: %w", i, err)
+		}
+		if _, err := s.db.Exec(`INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)`,
+			i, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
