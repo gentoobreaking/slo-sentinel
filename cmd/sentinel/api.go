@@ -8,11 +8,15 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"slo-sentinel/internal/billing"
+	"slo-sentinel/internal/cost"
 	"slo-sentinel/internal/store"
+	"slo-sentinel/internal/waste"
 )
 
 // metricsRegistry 執行緒安全的簡易指標集（Prometheus text 格式輸出）。
@@ -66,6 +70,9 @@ func (a *readAPI) serve(addr string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/status.json", a.statusJSON)
 	mux.HandleFunc("/api/accuracy", a.accuracyJSON)
+	mux.HandleFunc("/api/slo/", a.sloDetail)
+	mux.HandleFunc("/api/cost", a.costJSON)
+	mux.HandleFunc("/api/waste", a.wasteJSON)
 	srv := &http.Server{Addr: addr, Handler: mux}
 	return srv.ListenAndServe()
 }
@@ -103,6 +110,102 @@ func (a *readAPI) accuracyJSON(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"since": since.Format(time.RFC3339), "sensors": out})
+}
+
+// sloDetail 回傳單一感測的狀態＋預測預測歷史（預測 vs 實際曲線資料源）。
+func (a *readAPI) sloDetail(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/slo/")
+	if id == "" {
+		http.Error(w, "missing sensor id", http.StatusBadRequest)
+		return
+	}
+	st, err := a.d.st.GetState(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	days := 30
+	if v := r.URL.Query().Get("days"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 365 {
+			days = n
+		}
+	}
+	preds, err := a.d.st.ListPredictions(id, time.Now().UTC().Add(-time.Duration(days)*24*time.Hour))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"sensor_id": id, "state": st, "predictions": preds,
+	})
+}
+
+// costJSON 月度成本現況與推估（F11–F13；未設定帳務來源時回 enabled:false）。
+func (a *readAPI) costJSON(w http.ResponseWriter, r *http.Request) {
+	if a.d.billingSrc == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"enabled": false,
+			"hint":    "設定 AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY 或 ALICLOUD_ACCESS_KEY_ID/ALICLOUD_ACCESS_KEY_SECRET 以啟用",
+		})
+		return
+	}
+	now := time.Now().UTC()
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	spends, err := a.d.billingSrc.DailySpend(r.Context(), billing.Filter{}, monthStart, now)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	var mtd float64
+	for _, sp := range spends {
+		mtd += sp.CostUSD
+	}
+	dElapsed := now.Day()
+	rates := cost.EstimateRates(mtd, dElapsed, recentTail(spends, 7))
+	eom := cost.ProjectEOM(mtd, now, rates)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"enabled": true,
+		"confirmed_through": lastConfirmed(spends),
+		"mtd_usd": mtd,
+		"eom_projection": map[string]float64{
+			"aggressive": eom.Aggressive, "conservative": eom.Conservative,
+		},
+		"daily_spends": spends,
+	})
+}
+
+// wasteJSON 即時執行一次 waste 掃描（基於最近載入的目錄）。
+func (a *readAPI) wasteJSON(w http.ResponseWriter, r *http.Request) {
+	if a.d.lastCatalog == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"candidates": []any{}, "note": "目錄尚未載入"})
+		return
+	}
+	sc := &waste.Scanner{Src: a.d.src}
+	cands, err := sc.Scan(r.Context(), a.d.lastCatalog, time.Now().UTC())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"candidates": cands})
+}
+
+func recentTail(spends []billing.DailySpend, n int) []billing.DailySpend {
+	if len(spends) <= n {
+		return spends
+	}
+	return spends[len(spends)-n:]
+}
+
+func lastConfirmed(spends []billing.DailySpend) string {
+	if len(spends) == 0 {
+		return ""
+	}
+	return spends[len(spends)-1].Date.Format("2006-01-02")
 }
 
 // storeSensorStateJSON 為對外的 JSON 形狀（與 store 內部結構解耦）。

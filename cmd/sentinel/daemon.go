@@ -20,6 +20,7 @@ import (
 	"slo-sentinel/config"
 	"slo-sentinel/internal/alert"
 	"slo-sentinel/internal/budget"
+	"slo-sentinel/internal/billing"
 	"slo-sentinel/internal/capacity"
 	"slo-sentinel/internal/catalog"
 	"slo-sentinel/internal/promdur"
@@ -56,13 +57,32 @@ type daemon struct {
 	notifier alert.Notifier
 	dedupe   *alert.Dedupe
 	amcoord  *alert.AMCoord
-	capDefs  []capacity.Def
-	metrics  *metricsRegistry
+	capDefs    []capacity.Def
+	metrics    *metricsRegistry
 
-	sensors []sensorRunner
+	sensors     []sensorRunner
+	lastCatalog *catalog.Catalog
+	billingSrc  billing.BillingSource // 由環境變數組態；nil = 未啟用
 }
 
 func newDaemon(cfg config.Config, log *slog.Logger, src query.Source, st *store.Store) *daemon {
+	var bill billing.BillingSource
+	switch {
+	case os.Getenv("AWS_ACCESS_KEY_ID") != "" && os.Getenv("AWS_SECRET_ACCESS_KEY") != "":
+		bill = &billing.AWSCostExplorer{
+			AccessKey: os.Getenv("AWS_ACCESS_KEY_ID"),
+			SecretKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+			Region:    envOr("AWS_REGION", "us-east-1"),
+		}
+		log.Info("billing_source_enabled", "source", "aws-ce")
+	case os.Getenv("ALICLOUD_ACCESS_KEY_ID") != "" && os.Getenv("ALICLOUD_ACCESS_KEY_SECRET") != "":
+		bill = &billing.AlicloudBSS{
+			AccessKeyID:     os.Getenv("ALICLOUD_ACCESS_KEY_ID"),
+			AccessKeySecret: os.Getenv("ALICLOUD_ACCESS_KEY_SECRET"),
+		}
+		log.Info("billing_source_enabled", "source", "alicloud-bss")
+	}
+
 	var notifier alert.Notifier
 	if cfg.TelegramToken != "" {
 		notifier = alert.NewTelegram(cfg.TelegramToken, telegramChatFromEnv())
@@ -79,6 +99,7 @@ func newDaemon(cfg config.Config, log *slog.Logger, src query.Source, st *store.
 		dedupe:   alert.NewDedupe(),
 		amcoord:  &alert.AMCoord{BaseURL: cfg.AlertManagerURL},
 		metrics:  newMetricsRegistry(),
+		billingSrc: bill,
 	}
 }
 
@@ -228,13 +249,17 @@ func (d *daemon) Run(ctx context.Context) error {
 		return err
 	}
 
-	// rules.d 熱載入：變更後下一輪詢以新目錄生效（重建感測器）
+	// rules.d 熱載入：變更後下一輪詢以新目錄生效（重建感測器）；目錄快照供 /api/waste 使用
 	catalogLoader := &catalog.Loader{Dir: d.cfg.RulesDir}
-	if _, _, loadErr := catalogLoader.Load(d.cfg.RulesDir); loadErr != nil {
+	if cat0, _, loadErr := catalogLoader.Load(d.cfg.RulesDir); loadErr != nil {
 		d.log.Warn("rules_dir_load_failed", "error", loadErr.Error())
-	} else if stopWatch, werr := catalogLoader.Watch(ctx, d.cfg.RulesDir,
-		func(*catalog.Catalog) {
+	} else {
+		d.lastCatalog = cat0
+	}
+	if stopWatch, werr := catalogLoader.Watch(ctx, d.cfg.RulesDir,
+		func(cat *catalog.Catalog) {
 			d.log.Info("rules_hot_reloaded")
+			d.lastCatalog = cat
 			if err := d.setupSensors(ctx); err != nil {
 				d.log.Error("sensors_rebuild_failed", "error", err.Error())
 			}
@@ -363,4 +388,11 @@ func (d *daemon) eachState(fn func(store.SensorState)) {
 			fn(*st)
 		}
 	}
+}
+
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }
