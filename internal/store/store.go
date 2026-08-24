@@ -65,6 +65,21 @@ var migrations = []string{
 	// v3：容量感測的利用率（0–1）與原始消耗量分開存——budget-status 端點
 	// 需要利用率算 remaining_budget%，而 last_value 是絕對量（如 bytes）
 	`ALTER TABLE sensor_state ADD COLUMN last_utilization REAL`,
+	// v4（T024）：waste 候選生命週期持久化——重啟不丟 dismiss/resolve 狀態
+	`CREATE TABLE IF NOT EXISTS waste_entries (
+		sensor_id         TEXT NOT NULL,
+		resource_id       TEXT NOT NULL,
+		reason            TEXT NOT NULL DEFAULT '',
+		state             TEXT NOT NULL,
+		first_seen        TEXT NOT NULL,
+		last_notified     TEXT NOT NULL DEFAULT '',
+		renotify_sec      REAL NOT NULL DEFAULT 0,
+		waste_usd_per_day REAL NOT NULL DEFAULT 0,
+		total_waste_usd   REAL NOT NULL DEFAULT 0,
+		dismiss_reason    TEXT NOT NULL DEFAULT '',
+		dismiss_until     TEXT NOT NULL DEFAULT '',
+		PRIMARY KEY (sensor_id, resource_id)
+	)`,
 }
 
 func (s *Store) migrate() error {

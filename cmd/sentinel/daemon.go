@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -28,6 +29,7 @@ import (
 	"slo-sentinel/internal/promdur"
 	"slo-sentinel/internal/query"
 	"slo-sentinel/internal/store"
+	"slo-sentinel/internal/waste"
 )
 
 type specSLO struct {
@@ -64,6 +66,7 @@ type daemon struct {
 
 	sensors     []sensorRunner
 	lastCatalog *catalog.Catalog
+	tracker     *waste.Tracker        // waste 候選生命週期（T024）；Run 時建立並自 store 還原
 	billingSrc  billing.BillingSource // 由環境變數組態；nil = 未啟用
 	pricer      *pricing.Catalog      // estimate 模式單價目錄；nil = 未啟用
 	costMap     []cost.UsageTemplate  // 感測 → 價目家族映射；空 = 未啟用
@@ -113,6 +116,7 @@ func newDaemon(cfg config.Config, log *slog.Logger, src query.Source, st *store.
 		log.Warn("telegram_token 未設定：通知降級為 log-only")
 		notifier = alert.LogNotifier{}
 	}
+	cfg = applyWasteEnvOverride(cfg)
 	return &daemon{
 		cfg:        cfg,
 		log:        log,
@@ -126,6 +130,21 @@ func newDaemon(cfg config.Config, log *slog.Logger, src query.Source, st *store.
 		pricer:     pricer,
 		costMap:    costMap,
 	}
+}
+
+// applyWasteEnvOverride 以環境變數覆寫 waste 掃描週期（T024）：
+// WASTE_SCAN_INTERVAL_SEC=off|0 完全停用；數字 = 週期秒數。
+func applyWasteEnvOverride(cfg config.Config) config.Config {
+	v := os.Getenv("WASTE_SCAN_INTERVAL_SEC")
+	switch {
+	case v == "off" || v == "0":
+		cfg.WasteScanIntervalSec = 0
+	case v != "":
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.WasteScanIntervalSec = n
+		}
+	}
+	return cfg
 }
 
 func (d *daemon) setupSensors(ctx context.Context) error {
@@ -309,6 +328,22 @@ func (d *daemon) Run(ctx context.Context) error {
 	metricsErr := make(chan error, 1)
 	go func() { metricsErr <- serveMetrics(d.cfg.MetricsAddr, d.metrics) }()
 
+	// waste 候選生命週期（T024）：自 store 還原（重啟不丟 dismiss/resolve），
+	// 以獨立 ticker 定期掃描；週期可用 config／WASTE_SCAN_INTERVAL_SEC 覆寫，off 完全停用
+	d.tracker = waste.NewLiveTracker()
+	if entries, err := d.st.AllWasteEntries(); err == nil {
+		d.tracker.Restore(entriesFromStore(entries))
+	} else {
+		d.log.Warn("waste_entries_load_failed", "error", err.Error())
+	}
+	var wasteTicker *time.Ticker
+	if d.cfg.WasteScanIntervalSec > 0 {
+		wasteTicker = time.NewTicker(time.Duration(d.cfg.WasteScanIntervalSec) * time.Second)
+		defer wasteTicker.Stop()
+	} else {
+		d.log.Info("waste_scan_disabled")
+	}
+
 	ticker := time.NewTicker(time.Duration(d.cfg.PollIntervalSec) * time.Second)
 	defer ticker.Stop()
 
@@ -317,6 +352,7 @@ func (d *daemon) Run(ctx context.Context) error {
 		d.log.Info("scheduler_stopped", "reason", err.Error())
 		return nil
 	}
+	d.runWasteScan(ctx) // 啟動即掃一次 waste，之後每 N 小時一輪
 	for {
 		select {
 		case <-ctx.Done():
@@ -331,6 +367,45 @@ func (d *daemon) Run(ctx context.Context) error {
 				return nil
 			}
 			d.maybeWeeklyCost(ctx, time.Now().UTC()) // 每週成本摘要（§D.5，同 ISO 週去重）
+		case <-wasteTicker.C: // ticker 為 nil 時永不觸發（已停用）
+			d.runWasteScan(ctx)
+		}
+	}
+}
+
+// runWasteScan 執行一輪 waste 掃描（T024）：結果餵 Tracker.Observe——新候選、
+// 重提、dismiss 到期復活才直推通知（同資源去重）；逐項 best-effort，
+// 單一規則 expr 失敗不拖垮整輪。掃描後把全部條目寫回 SQLite。
+func (d *daemon) runWasteScan(ctx context.Context) {
+	if d.cfg.WasteScanIntervalSec <= 0 || d.lastCatalog == nil || d.tracker == nil {
+		return // 已停用或目錄尚未載入
+	}
+	sc := &waste.Scanner{Src: d.src, Logger: d.log}
+	cands, err := sc.Scan(ctx, d.lastCatalog, time.Now().UTC())
+	if err != nil {
+		d.log.Error("waste_scan_failed", "error", err.Error())
+		return
+	}
+	notified := 0
+	for _, c := range cands {
+		_, shouldNotify, msg := d.tracker.Observe(c)
+		if !shouldNotify {
+			continue
+		}
+		notified++
+		if err := d.notifier.Send(ctx, msg); err != nil {
+			d.log.Error("waste_notify_failed", "error", err.Error())
+		}
+	}
+	d.persistWasteEntries()
+	d.log.Info("waste_scan_done", "candidates", len(cands), "notified", notified)
+}
+
+// persistWasteEntries 把 Tracker 全部條目寫回 SQLite（重啟還原 dismiss/resolve 用）。
+func (d *daemon) persistWasteEntries() {
+	for _, e := range d.tracker.Entries() {
+		if err := d.st.SetWasteEntry(entryToStore(e)); err != nil {
+			d.log.Error("waste_entry_persist_failed", "resource", e.ResourceID, "error", err.Error())
 		}
 	}
 }

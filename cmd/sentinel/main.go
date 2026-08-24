@@ -4,6 +4,7 @@
 //
 //	sentinel [-config path]        # daemon 模式（預設）
 //	sentinel status [-config path] # 列出所有感測現況表
+//	sentinel waste list|dismiss|resolve [-config path] # waste 候選清單管理（T024）
 package main
 
 import (
@@ -24,6 +25,10 @@ func main() {
 		dbPath := fs.String("db", "", "SQLite 路徑（覆寫 config）")
 		fs.Parse(os.Args[2:])
 		runStatus(*cfgPath, *dbPath)
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "waste" {
+		runWasteCLI(os.Args[2:])
 		return
 	}
 

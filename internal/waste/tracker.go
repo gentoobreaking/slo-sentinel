@@ -6,6 +6,7 @@ package waste
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
@@ -45,6 +46,46 @@ type Tracker struct {
 
 func NewTracker(now time.Time) *Tracker {
 	return &Tracker{nowFn: func() time.Time { return now }, entries: map[string]*Entry{}}
+}
+
+// NewLiveTracker 建立以真實時鐘驅動的 Tracker（daemon 定期掃描與 CLI 持久化場景用）。
+func NewLiveTracker() *Tracker {
+	return &Tracker{nowFn: time.Now, entries: map[string]*Entry{}}
+}
+
+// Entries 回傳全部條目的快照（依 key 排序；供持久化與 CLI 列表）。
+func (t *Tracker) Entries() []Entry {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	keys := make([]string, 0, len(t.entries))
+	for k := range t.entries {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]Entry, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, *t.entries[k])
+	}
+	return out
+}
+
+// Restore 載入持久化條目（重啟還原 dismiss/resolve 狀態）；
+// resolved 條目的 TotalWasteUSD 重算為已結案節省總額。
+func (t *Tracker) Restore(entries []Entry) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var saving float64
+	for i := range entries {
+		e := entries[i]
+		cp := e
+		t.entries[e.SensorID+"/"+e.ResourceID] = &cp
+		if cp.State == LifecycleResolved {
+			saving += cp.TotalWasteUSD
+		}
+	}
+	if saving > t.resolvedSaving {
+		t.resolvedSaving = saving
+	}
 }
 
 // Observe 登記/更新一次掃描結果：

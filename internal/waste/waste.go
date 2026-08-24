@@ -9,7 +9,6 @@ package waste
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"slo-sentinel/internal/catalog"
@@ -51,7 +50,11 @@ func (sc *Scanner) Scan(ctx context.Context, cat *catalog.Catalog, now time.Time
 		}
 		res, err := sc.Src.RangeQuery(ctx, r.Expr, now.Add(-window), now, 24*time.Hour)
 		if err != nil {
-			return nil, fmt.Errorf("waste %s: %w", r.ID(), err)
+			// best-effort（T024）：單一規則 expr 失敗不拖垮整輪掃描
+			if sc.Logger != nil {
+				sc.Logger.Warn("waste_rule_scan_failed", "rule", r.ID(), "error", err.Error())
+			}
+			continue
 		}
 		if len(res) == 0 || len(res[0].Samples) == 0 {
 			continue

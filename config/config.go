@@ -22,20 +22,23 @@ type Config struct {
 	ListenAddr      string `yaml:"listen_addr"`  // 唯讀 JSON API；預設僅綁本機
 	MetricsAddr     string `yaml:"metrics_addr"` // Prometheus /metrics；預設僅綁本機
 	LogFormat       string `yaml:"log_format"`   // json | text
+	// waste 掃描週期（秒，T024）；0 = 完全停用。可用環境變數 WASTE_SCAN_INTERVAL_SEC 覆寫（off/0 停用）
+	WasteScanIntervalSec int `yaml:"waste_scan_interval_sec"`
 }
 
 func defaults() Config {
 	return Config{
-		PollIntervalSec: 60,
-		PrometheusURL:   "http://localhost:9090",
-		AlertManagerURL: "http://localhost:9093",
-		RulesDir:        "rules.d",
-		SloDefsDir:      "slo_defs",
-		CapacityDefsDir: "capacity_defs",
-		DBPath:          "sentinel.db",
-		ListenAddr:      "127.0.0.1:9099",
-		MetricsAddr:     "127.0.0.1:9102",
-		LogFormat:       "json",
+		PollIntervalSec:      60,
+		PrometheusURL:        "http://localhost:9090",
+		AlertManagerURL:      "http://localhost:9093",
+		RulesDir:             "rules.d",
+		SloDefsDir:           "slo_defs",
+		CapacityDefsDir:      "capacity_defs",
+		DBPath:               "sentinel.db",
+		ListenAddr:           "127.0.0.1:9099",
+		MetricsAddr:          "127.0.0.1:9102",
+		LogFormat:            "json",
+		WasteScanIntervalSec: 6 * 3600, // 預設每 6 小時掃一次 waste（建議 6h～1d）
 	}
 }
 
@@ -63,6 +66,7 @@ func Load(path string) (Config, error) {
 		return cfg, fmt.Errorf("parse config %s: %w", path, err)
 	}
 	apply(&cfg, over)
+	overrideWasteInterval(&cfg, raw)
 	if err := cfg.validate(); err != nil {
 		return cfg, err
 	}
@@ -83,12 +87,32 @@ func apply(base *Config, over Config) {
 	setStr(&base.ListenAddr, over.ListenAddr)
 	setStr(&base.MetricsAddr, over.MetricsAddr)
 	setStr(&base.LogFormat, over.LogFormat)
+	if over.WasteScanIntervalSec > 0 {
+		base.WasteScanIntervalSec = over.WasteScanIntervalSec
+	}
 }
 
 func setStr(dst *string, v string) {
 	if v != "" {
 		*dst = v
 	}
+}
+
+// overrideWasteInterval 處理 waste_scan_interval_sec 的「明確設 0 = 停用」：
+// YAML 未寫此欄時維持預設值；寫了（含 0）就以檔案值為準。
+func overrideWasteInterval(cfg *Config, raw map[string]any) {
+	v, ok := raw["waste_scan_interval_sec"]
+	if !ok {
+		return
+	}
+	if n, ok := toInt(v); ok && n >= 0 {
+		cfg.WasteScanIntervalSec = n
+	}
+}
+
+func toInt(v any) (int, bool) {
+	n, ok := v.(int)
+	return n, ok
 }
 
 func (c Config) validate() error {
@@ -99,6 +123,9 @@ func (c Config) validate() error {
 	case "json", "text":
 	default:
 		return fmt.Errorf("log_format 必須是 json 或 text，得到 %q", c.LogFormat)
+	}
+	if c.WasteScanIntervalSec < 0 {
+		return fmt.Errorf("waste_scan_interval_sec 不可為負，得到 %d", c.WasteScanIntervalSec)
 	}
 	return nil
 }
