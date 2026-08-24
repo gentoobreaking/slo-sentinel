@@ -214,10 +214,47 @@ Web 頁面：`/` 總表｜`/slo/{id}` 詳情與預測歷史｜`/accuracy` 命中
 ## Testing
 
 ```bash
-go test ./...      # 68 個測試函式、12 套件全離線可跑
+go test ./...      # 100 個測試函式、14 套件，全離線可跑：單元/契約/煙霧測試
 make vet           # go vet
 make build         # 產出 bin/ 並於 CI 驗證 ≤20MB
 ```
+
+### 端到端測試環境（dev profile）
+
+用 compose 內建的 Prometheus＋node_exporter 餵**真實主機資料**給 sentinel，
+一鍵驗證「指標 → 容量感測 → ETA 引擎 → 唯讀 API → CD 閘門腳本」整條鏈：
+
+```bash
+docker compose --profile dev up -d --build
+```
+
+啟動的四個容器：`slo-sentinel`、`slo-sentinel-ui`、`slo-prometheus`（:9090）、
+`slo-node-exporter`（:9100）。相關檔案：
+
+- `deploy/prometheus/prometheus-dev.yml`——Prometheus 設定（抓 node-exporter＋自我監控）
+- `capacity_defs/node-disk.yaml`——真實磁碟感測 `dev-root-disk`
+  （used = size − free；node_exporter 沒有 used_bytes 指標，需相減；
+  fstype 過濾跨環境通用，容器 VM 內也適用）
+
+驗證步驟（等約 1 分鐘讓 Prometheus 抓到兩個樣本後）：
+
+```bash
+# 1. 感測狀態（應出現 dev-root-disk＝healthy，利用率為真實磁碟值）
+curl -s http://127.0.0.1:9099/api/status.json | python3 -m json.tool
+
+# 2. CD 閘門契約端點（remaining_budget 為真實磁碟餘量 %）
+curl -s http://127.0.0.1:9099/api/budget-status/dev-root-disk | python3 -m json.tool
+
+# 3. CD 閘門腳本對活體 stack（notify 模式：警告但 exit 0）
+SENTINEL_URL=http://127.0.0.1:9099 SLO_ID=dev-root-disk \
+  bash scripts/cd-budget-handler.sh; echo "exit=$?"
+```
+
+收尾：`docker compose --profile dev down`（資料卷保留）。
+注意 capacity_defs **非熱載入**——改定義檔後需 `docker restart slo-sentinel`。
+
+> 此環境同時是 T019/T021 前置條件「daemon 實際運行 ≥30 天累積 burn rate」
+> 的運行載體：掛上 Telegram token 後放著跑即可開始累積數據。
 
 ## Deployment
 
