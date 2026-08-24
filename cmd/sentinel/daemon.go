@@ -67,9 +67,21 @@ type daemon struct {
 	sensors     []sensorRunner
 	lastCatalog *catalog.Catalog
 	tracker     *waste.Tracker        // waste 候選生命週期（T024）；Run 時建立並自 store 還原
+	notifyRetry map[string]*retryState // 感測通知連續失敗追蹤（T026 退避）
 	billingSrc  billing.BillingSource // 由環境變數組態；nil = 未啟用
 	pricer      *pricing.Catalog      // estimate 模式單價目錄；nil = 未啟用
 	costMap     []cost.UsageTemplate  // 感測 → 價目家族映射；空 = 未啟用
+}
+
+// 通知失敗退避參數（T026）：連續失敗 N 輪後降級為每 M 輪重試一次。
+const (
+	notifyBackoffAfter = 3
+	notifyRetryEvery   = 5
+)
+
+type retryState struct {
+	fails     int // 連續失敗次數
+	sinceFail int // 降級後經過的輪數（達 notifyRetryEvery 歸零並重試）
 }
 
 func newDaemon(cfg config.Config, log *slog.Logger, src query.Source, st *store.Store) *daemon {
@@ -118,15 +130,16 @@ func newDaemon(cfg config.Config, log *slog.Logger, src query.Source, st *store.
 	}
 	cfg = applyWasteEnvOverride(cfg)
 	return &daemon{
-		cfg:        cfg,
-		log:        log,
-		src:        src,
-		st:         st,
-		notifier:   notifier,
-		dedupe:     alert.NewDedupe(),
-		amcoord:    &alert.AMCoord{BaseURL: cfg.AlertManagerURL},
-		metrics:    newMetricsRegistry(),
-		billingSrc: bill,
+		cfg:         cfg,
+		log:         log,
+		src:         src,
+		st:          st,
+		notifier:    notifier,
+		dedupe:      alert.NewDedupe(),
+		amcoord:     &alert.AMCoord{BaseURL: cfg.AlertManagerURL},
+		metrics:     newMetricsRegistry(),
+		notifyRetry: map[string]*retryState{},
+		billingSrc:  bill,
 		pricer:     pricer,
 		costMap:    costMap,
 	}
@@ -145,6 +158,38 @@ func applyWasteEnvOverride(cfg config.Config) config.Config {
 		}
 	}
 	return cfg
+}
+
+// allowNotify 退避閘門（T026）：連續失敗 ≥notifyBackoffAfter 輪後，
+// 每 notifyRetryEvery 輪才放行一次重試。
+func (d *daemon) allowNotify(sensorID string) bool {
+	if d.notifyRetry == nil {
+		d.notifyRetry = map[string]*retryState{}
+	}
+	rt, ok := d.notifyRetry[sensorID]
+	if !ok || rt.fails < notifyBackoffAfter {
+		return true
+	}
+	rt.sinceFail++
+	if rt.sinceFail >= notifyRetryEvery {
+		rt.sinceFail = 0
+		return true // 到了重試輪
+	}
+	return false
+}
+
+// markNotifyResult 登記發送結果：成功清除退避計數；失敗累計次數。
+func (d *daemon) markNotifyResult(sensorID string, err error) {
+	if err == nil {
+		delete(d.notifyRetry, sensorID)
+		return
+	}
+	rt := d.notifyRetry[sensorID]
+	if rt == nil {
+		rt = &retryState{}
+		d.notifyRetry[sensorID] = rt
+	}
+	rt.fails++
 }
 
 func (d *daemon) setupSensors(ctx context.Context) error {
@@ -264,10 +309,21 @@ func (d *daemon) runOnePoll(ctx context.Context) error {
 					d.log.Warn("amcoord_failed", "error", err.Error())
 				}
 			}
-			if !firing && d.dedupe.ShouldNotify(f.ID, string(f.State)) {
+			// 通知發送失敗保護（T026）：先 Peek 判定、Send 成功才 Commit——
+			// 失敗不推進去重狀態，下一輪自動重試同一轉移；
+			// 連續失敗 ≥N 輪後每 M 輪才重試一次（避免打掛掉的 API）。
+			if !firing && d.dedupe.Peek(f.ID, string(f.State)) && d.allowNotify(f.ID) {
 				msg := formatForecastCard(f)
-				if err := d.notifier.Send(ctx, msg); err != nil {
-					d.log.Error("notify_failed", "error", err.Error())
+				if serr := d.notifier.Send(ctx, msg); serr != nil {
+					d.markNotifyResult(f.ID, serr)
+					rt := d.notifyRetry[f.ID]
+					d.log.Error("notify_failed_will_retry",
+						"sensor", f.ID, "fails", rt.fails,
+						"backoff", rt.fails >= notifyBackoffAfter, "error", serr.Error())
+					d.metrics.Set(fmt.Sprintf("sentinel_notify_failures_total{sensor=%q}", f.ID), float64(rt.fails))
+				} else {
+					d.markNotifyResult(f.ID, nil)
+					d.dedupe.Commit(f.ID, string(f.State))
 				}
 			}
 			prev, _ := d.st.GetState(f.ID)

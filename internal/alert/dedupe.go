@@ -17,14 +17,9 @@ type Dedupe struct {
 
 func NewDedupe() *Dedupe { return &Dedupe{lastState: map[string]string{}} }
 
-// ShouldNotify 回傳是否應推播此狀態轉移。
-//
-// 規則：
-//   - 首次出現非 healthy 狀態 → 通知
-//   - warning→critical 升級 → 通知
-//   - 任一狀態 → healthy（恢復）→ 通知 resolved
-//   - 同狀態重複 / healthy 持續 → 不通知（digest 負責週期彙總）
-func (d *Dedupe) ShouldNotify(sensorID, newState string) bool {
+// Peek 回傳是否應推播此狀態轉移，但不登記（T026：daemon 先發送成功才 Commit，
+// 發送失敗下輪自動重試同一轉移）。
+func (d *Dedupe) Peek(sensorID, newState string) bool {
 	if d.lastState == nil {
 		d.lastState = map[string]string{}
 	}
@@ -38,8 +33,30 @@ func (d *Dedupe) ShouldNotify(sensorID, newState string) bool {
 	if newState != "healthy" && prev != "healthy" && rank(newState) <= rank(prev) {
 		return false // critical→warning 降級不單獨通知，等恢復一起說
 	}
-	d.lastState[sensorID] = newState
 	return true
+}
+
+// Commit 登記已成功通知的狀態（搭配 Peek 使用）。
+func (d *Dedupe) Commit(sensorID, newState string) {
+	if d.lastState == nil {
+		d.lastState = map[string]string{}
+	}
+	d.lastState[sensorID] = newState
+}
+
+// ShouldNotify 回傳是否應推播此狀態轉移並登記。
+//
+// 規則（同 Peek）：
+//   - 首次出現非 healthy 狀態 → 通知
+//   - warning→critical 升級 → 通知
+//   - 任一狀態 → healthy（恢復）→ 通知 resolved
+//   - 同狀態重複 / healthy 持續 → 不通知（digest 負責週期彙總）
+func (d *Dedupe) ShouldNotify(sensorID, newState string) bool {
+	ok := d.Peek(sensorID, newState)
+	if ok {
+		d.Commit(sensorID, newState)
+	}
+	return ok
 }
 
 func rank(state string) int {
