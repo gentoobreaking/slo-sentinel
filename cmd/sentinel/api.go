@@ -6,6 +6,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"sort"
 	"strconv"
@@ -69,6 +70,7 @@ type readAPI struct {
 func (a *readAPI) serve(addr string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/status.json", a.statusJSON)
+	mux.HandleFunc("/api/budget-status/", a.budgetStatusJSON)
 	mux.HandleFunc("/api/accuracy", a.accuracyJSON)
 	mux.HandleFunc("/api/slo/", a.sloDetail)
 	mux.HandleFunc("/api/cost", a.costJSON)
@@ -142,6 +144,60 @@ func (a *readAPI) sloDetail(w http.ResponseWriter, r *http.Request) {
 }
 
 // costJSON 月度成本現況與推估（F11–F13；未設定帳務來源時回 enabled:false）。
+// budgetStatusJSON 回傳單一 SLO 的預算狀態（F6 Phase 1 契約，T019）。
+//
+//	GET /api/budget-status/{slo_id}
+//	→ {"mode":"notify", "state":"healthy|warning|critical",
+//	   "remaining_budget": 42.5, "eta_hours": 187, "confirmed_date":"2026-08-24", "as_of":…}
+//
+// 唯讀、無副作用；資料來自 store 最新感測狀態與預測紀錄。
+// mode：freeze policy 檔載入屬 T019 後續工作，v1 恆篇 notify（如實標注）。
+func (a *readAPI) budgetStatusJSON(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/budget-status/")
+	if id == "" || strings.Contains(id, "/") {
+		http.Error(w, `{"error":"缺少 slo_id"}`, http.StatusBadRequest)
+		return
+	}
+	st, err := a.d.st.GetState(id)
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusInternalServerError)
+		return
+	}
+	if st == nil {
+		http.Error(w, fmt.Sprintf(`{"error":"查無感測 %q"}`, id), http.StatusNotFound)
+		return
+	}
+
+	// remaining_budget%：LastValue 為消耗比（utilization），餘量 = 1 − utilization
+	remain := (1 - st.LastValue) * 100
+	remain = math.Round(remain*100) / 100 // 浮點尾巴清理，報表顯示用
+	if remain < 0 {
+		remain = 0
+	} else if remain > 100 {
+		remain = 100
+	}
+
+	// eta_hours：最近一次預測的穩健視野（近 24h 內；過舊視同無效）
+	var etaHours *float64
+	if preds, perr := a.d.st.ListPredictions(id, time.Now().Add(-24*time.Hour)); perr == nil && len(preds) > 0 {
+		last := preds[len(preds)-1]
+		if last.EtaConservative != nil {
+			h := *last.EtaConservative / 3600
+			etaHours = &h
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"mode":             "notify",
+		"state":            string(st.State),
+		"remaining_budget": remain,
+		"eta_hours":        etaHours,
+		"confirmed_date":   st.UpdatedAt.UTC().Format("2006-01-02"),
+		"as_of":            st.UpdatedAt.UTC().Format(time.RFC3339),
+	})
+}
+
 func (a *readAPI) costJSON(w http.ResponseWriter, r *http.Request) {
 	if a.d.billingSrc == nil {
 		w.Header().Set("Content-Type", "application/json")

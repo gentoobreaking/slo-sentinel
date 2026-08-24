@@ -227,6 +227,12 @@ rules.d 佔建流程（Sloth 整合與 awesome-prometheus-alerts 上游同步腳
 `scripts/sync-community.sh`）、Prometheus scrape job 設定說明。CI
 （`.github/workflows/ci.yml`）涵蓋 vet/test/binary 大小檢查（≤20MB）。
 
+**成本/預算 CD 閘門（F6 Phase 1，notify 模式）**：唯讀端點
+`GET /api/budget-status/{slo_id}` 已上線；目標服務的 CI/CD 管線以
+[`scripts/cd-budget-handler.sh`](scripts/cd-budget-handler.sh) 接入（三套 CI
+範例見 [`docs/ci-budget-gate.md`](docs/ci-budget-gate.md)）。notify 模式
+永不阻擋部署（fail-open）；enforce 阻擋為 T021，鎖在 30 天校準數據與政策審查後。
+
 ## Security
 
 - 所有監聽預設綁 `127.0.0.1`；UI 僅 GET、無寫入端點
