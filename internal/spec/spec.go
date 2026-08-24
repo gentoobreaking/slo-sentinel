@@ -30,6 +30,9 @@ func (s SLO) Validate() error {
 	if s.Objective <= 0 || s.Objective >= 100 {
 		return fmt.Errorf("%s: objective 必須介於 (0,100)，得到 %v", s.ID, s.Objective)
 	}
+	if s.WindowDays < 0 {
+		return fmt.Errorf("%s: window_days 不可為負，得到 %d", s.ID, s.WindowDays)
+	}
 	return nil
 }
 

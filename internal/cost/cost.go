@@ -110,12 +110,13 @@ func ProjectYear(now time.Time, year int, monthlyActual map[time.Month]float64, 
 	return out, total
 }
 
-// FormatReport 產生人話報表（Telegram/UI 共用）。
-func FormatReport(eom EomProjection, eta *float64) string {
+// FormatReport 產生人話報表（Telegram/UI 共用）。confirmedDate 為帳務資料截止日。
+func FormatReport(eom EomProjection, eta *float64, confirmedDate time.Time) string {
 	s := fmt.Sprintf("💰 月底推估：$%.2f（爆量情境 $%.2f）", eom.Conservative, eom.Aggressive)
 	if eta != nil {
 		s += fmt.Sprintf("\n照目前速度，預算 %s 後燒穿", humanDays(*eta))
 	}
+	s += fmt.Sprintf("\n（帳務資料截至 %s——雲端確認有延遲）", confirmedDate.Format("2006-01-02"))
 	return s
 }
 

@@ -2,6 +2,7 @@ package cost
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -83,7 +84,11 @@ func TestYearProjectionAndReport(t *testing.T) {
 	if total != wantTotal {
 		t.Fatalf("total = %v, want %v", total, wantTotal)
 	}
-	_ = FormatReport(EomProjection{Aggressive: 400, Conservative: 320}, ptr(72*3600))
+	rep := FormatReport(EomProjection{Aggressive: 400, Conservative: 320}, ptr(72*3600),
+		time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC))
+	if !strings.Contains(rep, "2026-08-23") {
+		t.Fatal("report must include confirmed_date")
+	}
 }
 
 func ptr(v float64) *float64 { return &v }

@@ -50,6 +50,8 @@ func TestValidationErrors(t *testing.T) {
 		{"缺 id", "slos:\n  - sli_query: up\n    objective: 99.9\n", "缺少 id"},
 		{"缺查詢", "slos:\n  - id: x\n    objective: 99.9\n", "sli_query"},
 		{"objective 超界", "slos:\n  - id: x\n    sli_query: up\n    objective: 100\n", "objective"},
+		{"window 負數", "slos:\n  - id: x\n    sli_query: up\n    objective: 99.9\n    window_days: -5\n", "window_days"},
+		{"最小合法定義", "slos:\n  - id: x\n    sli_query: up\n    objective: 99\n", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -59,6 +61,12 @@ func TestValidationErrors(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, err := Load(p)
+			if c.errSub == "" {
+				if err != nil {
+					t.Fatalf("expected success, got %v", err)
+				}
+				return
+			}
 			if err == nil || !strings.Contains(err.Error(), c.errSub) {
 				t.Fatalf("err = %v, want contains %q", err, c.errSub)
 			}
