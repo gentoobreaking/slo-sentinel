@@ -19,7 +19,9 @@ type Config struct {
 	SloDefsDir      string `yaml:"slo_defs_dir"`
 	CapacityDefsDir string `yaml:"capacity_defs_dir"`
 	DBPath          string `yaml:"db_path"`
-	LogFormat       string `yaml:"log_format"` // json | text
+	ListenAddr      string `yaml:"listen_addr"`  // 唯讀 JSON API；預設僅綁本機
+	MetricsAddr     string `yaml:"metrics_addr"` // Prometheus /metrics；預設僅綁本機
+	LogFormat       string `yaml:"log_format"`   // json | text
 }
 
 func defaults() Config {
@@ -31,6 +33,8 @@ func defaults() Config {
 		SloDefsDir:      "slo_defs",
 		CapacityDefsDir: "capacity_defs",
 		DBPath:          "sentinel.db",
+		ListenAddr:      "127.0.0.1:9099",
+		MetricsAddr:     "127.0.0.1:9102",
 		LogFormat:       "json",
 	}
 }
@@ -76,6 +80,8 @@ func apply(base *Config, over Config) {
 	setStr(&base.SloDefsDir, over.SloDefsDir)
 	setStr(&base.CapacityDefsDir, over.CapacityDefsDir)
 	setStr(&base.DBPath, over.DBPath)
+	setStr(&base.ListenAddr, over.ListenAddr)
+	setStr(&base.MetricsAddr, over.MetricsAddr)
 	setStr(&base.LogFormat, over.LogFormat)
 }
 

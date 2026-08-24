@@ -88,3 +88,32 @@ func (s *Store) migrate() error {
 	}
 	return nil
 }
+
+// StateRow 為 status 表格的一列。
+type StateRow struct {
+	SensorID  string
+	State     string
+	LastValue float64
+	UpdatedAt time.Time
+}
+
+// AllStates 回傳全部感測狀態（依 sensor_id 排序）。
+func (s *Store) AllStates() ([]StateRow, error) {
+	rows, err := s.db.Query(`SELECT sensor_id, state, COALESCE(last_value,0), updated_at
+		FROM sensor_state ORDER BY sensor_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []StateRow
+	for rows.Next() {
+		var r StateRow
+		var updated string
+		if err := rows.Scan(&r.SensorID, &r.State, &r.LastValue, &updated); err != nil {
+			return nil, err
+		}
+		r.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
