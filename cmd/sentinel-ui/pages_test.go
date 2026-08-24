@@ -105,3 +105,15 @@ func indexOf2(s, sub string) int {
 	}
 	return -1
 }
+
+func TestFmtGMT8(t *testing.T) {
+	got := fmtGMT8("2026-08-24T05:41:33.710666886Z")
+	want := "2026-08-24 13:41:33"
+	if got != want {
+		t.Fatalf("fmtGMT8 = %q, want %q", got, want)
+	}
+	// 非 RFC3339 輸入原樣返回（容錯）
+	if got := fmtGMT8("not-a-time"); got != "not-a-time" {
+		t.Fatalf("fallback broken: %q", got)
+	}
+}

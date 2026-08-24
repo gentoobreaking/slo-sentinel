@@ -117,7 +117,7 @@ func handleIndex(cfg uiConfig) http.HandlerFunc {
 			icon := stateIcon(st.State)
 			fmt.Fprintf(&rows,
 				"<tr><td><a href='/slo/%s'>%s</a></td><td>%s %s</td><td>%.4g</td><td>%s</td></tr>\n",
-				id, id, icon, st.State, st.LastValue, st.UpdatedAt)
+				id, id, icon, st.State, st.LastValue, fmtGMT8(st.UpdatedAt))
 		}
 		page(w, "感測總表", "<table border='1' cellpadding='4'><tr><th>感測</th><th>狀態</th><th>最後值</th><th>更新時間</th></tr>\n"+rows.String()+"</table>")
 	}
@@ -156,7 +156,7 @@ func handleSloDetail(cfg uiConfig) http.HandlerFunc {
 		var rows strings.Builder
 		for _, p := range detail.Predictions {
 			fmt.Fprintf(&rows, "<tr><td>%s</td><td>%v s</td><td>%v s</td><td>%.4g</td><td>%s</td></tr>\n",
-				p.PredictedAt, ptrVal(p.EtaAggressive), ptrVal(p.EtaConservative),
+				fmtGMT8(p.PredictedAt), ptrVal(p.EtaAggressive), ptrVal(p.EtaConservative),
 				p.ActualValue, p.CatalogVersion)
 		}
 		body := fmt.Sprintf("<h2>%s</h2><p>狀態：%s</p>"+
@@ -164,6 +164,19 @@ func handleSloDetail(cfg uiConfig) http.HandlerFunc {
 			id, stateStr, rows.String())
 		page(w, "感測詳情："+id, body)
 	}
+}
+
+var gmt8 = time.FixedZone("GMT+8", 8*3600)
+
+// fmtGMT8 將 RFC3339 UTC 時間戳轉為 GMT+8 人話格式顯示。
+// 解析失敗時回傳原字串（容錯不擋頁面）。固定偏移而非載入 tzdata——
+// alpine 基礎映像不保證有時區資料庫。
+func fmtGMT8(s string) string {
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return s
+	}
+	return t.In(gmt8).Format("2006-01-02 15:04:05")
 }
 
 func handleAccuracy(cfg uiConfig) http.HandlerFunc {
@@ -192,7 +205,7 @@ func handleAccuracy(cfg uiConfig) http.HandlerFunc {
 		page(w, "預測命中統計（近 7 天）",
 			fmt.Sprintf("<p>資料起始：%s</p><table border='1' cellpadding='4'>"+
 				"<tr><th>感測</th><th>預測筆數</th><th>最近激進 ETA(s)</th></tr>\n%s</table>",
-				payload.Since, rows.String()))
+				fmtGMT8(payload.Since), rows.String()))
 	}
 }
 
