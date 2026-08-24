@@ -247,7 +247,7 @@ func (a *readAPI) wasteJSON(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"candidates": []any{}, "note": "目錄尚未載入"})
 		return
 	}
-	sc := &waste.Scanner{Src: a.d.src}
+	sc := &waste.Scanner{Src: a.d.src, Pricer: a.d.pricer}
 	cands, err := sc.Scan(r.Context(), a.d.lastCatalog, time.Now().UTC())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

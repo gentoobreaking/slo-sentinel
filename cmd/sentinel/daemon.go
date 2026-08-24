@@ -449,7 +449,7 @@ func (d *daemon) runWasteScan(ctx context.Context) {
 	if d.cfg.WasteScanIntervalSec <= 0 || d.lastCatalog == nil || d.tracker == nil {
 		return // 已停用或目錄尚未載入
 	}
-	sc := &waste.Scanner{Src: d.src, Logger: d.log}
+	sc := &waste.Scanner{Src: d.src, Logger: d.log, Pricer: d.pricer} // pricer nil 時金額欄留空（T027）
 	cands, err := sc.Scan(ctx, d.lastCatalog, time.Now().UTC())
 	if err != nil {
 		d.log.Error("waste_scan_failed", "error", err.Error())
