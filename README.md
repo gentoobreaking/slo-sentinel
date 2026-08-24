@@ -83,7 +83,8 @@ internal/
 docs/               部署文件＋freeze-policy 範本
 deploy/docker/      容器設定範本（sentinel.yaml / sentinel-ui.json）＋ entrypoint.sh
 algs/               （任務書側）演算法規格
-scripts/            sync-community.sh（上游規則同步）
+scripts/            sync-community.sh（社群規則挑選式同步）
+cmd/ruleclassify/   社群規則自動分類 CLI（sync 後處理）
 Dockerfile          多階段建置（golang:alpine → alpine:latest，非 root）
 docker-compose.yml  daemon + UI 兩服務編排（healthcheck/資料卷）
 ```
@@ -260,12 +261,36 @@ SENTINEL_URL=http://127.0.0.1:9099 SLO_ID=dev-root-disk \
 > 此環境同時是 T019/T021 前置條件「daemon 實際運行 ≥30 天累積 burn rate」
 > 的運行載體：掛上 Telegram token 後放著跑即可開始累積數據。
 
+### 社群告警規則接入（挑選式同步＋自動分類）
+
+來源：[awesome-prometheus-alerts](https://github.com/samber/awesome-prometheus-alerts)
+（940+ 條規則、90+ 服務）。不需要全拉——`SELECTED` 清單列你堆疊用得到的服務即可，
+sync 腳本會**自動分類並補上 `sentinel_kind` 標籤**，使用者不必理解分類學：
+
+```bash
+printf 'redis\npostgresql\n' > rules.d/community/SELECTED   # 一行一個服務名，支援 # 註解
+./scripts/sync-community.sh                                 # 拉＋複製＋自動分類
+git diff && git commit                                      # 審查後生效
+```
+
+自動分類規則（[`cmd/ruleclassify`](cmd/ruleclassify)）：
+
+| 特徵 | 判為 | 語意 |
+|---|---|---|
+| expr/labels 引用 `sloth[:_]` 指標 | `budget` | Sloth 生成的預算規則 |
+| annotations 有 idle/unused/orphan…、天級 `_over_time` 回看窗、`for ≥ 7d` | `waste` | 慢性瘦身影候選，進 sentinel 掃描與通知生命週期 |
+| 其餘 | 不加標籤（KindNone） | 反應式閾值 → 留給 Prometheus/AlertManager |
+
+安全性：人工標籤一律不覆寫；引號內字串（如 `mode="idle"`）不誤判；
+yaml.Node 原位改寫保留註解。上游完整快取在 `.community-upstream/`
+（gitignore，位於載入路徑之外），只有 SELECTED 的服務會進入 `rules.d/community/`。
+
 ## Deployment
 
 容器化部署（docker compose，daemon＋UI 兩服務、healthcheck、資料卷持久化）見上方
 「Installation → Docker」；裸機/systemd 部署見 `docs/deploy.md`——含 systemd unit、
-rules.d 佔建流程（Sloth 整合與 awesome-prometheus-alerts 上游同步腳本
-`scripts/sync-community.sh`）、Prometheus scrape job 設定說明。CI
+rules.d 佔建流程（Sloth 整合與社群規則挑選式同步，見上方
+「Testing → 社群告警規則接入」）、Prometheus scrape job 設定說明。CI
 （`.github/workflows/ci.yml`）涵蓋 vet/test/binary 大小檢查（≤20MB）。
 
 **成本/預算 CD 閘門（F6 Phase 1，notify 模式）**：唯讀端點
