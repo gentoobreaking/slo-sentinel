@@ -22,13 +22,13 @@ const (
 
 // Entry 為一個候選的追蹤紀錄。
 type Entry struct {
-	SensorID    string
-	ResourceID  string
-	Reason      string
-	State       Lifecycle
-	FirstSeen   time.Time
-	LastNotified time.Time
-	Renotify    time.Duration // 重提週期（0 = 只提一次）
+	SensorID       string
+	ResourceID     string
+	Reason         string
+	State          Lifecycle
+	FirstSeen      time.Time
+	LastNotified   time.Time
+	Renotify       time.Duration // 重提週期（0 = 只提一次）
 	WasteUSDPerDay float64
 	TotalWasteUSD  float64
 	DismissReason  string
@@ -37,9 +37,9 @@ type Entry struct {
 
 // Tracker 管理候選清單（執行緒安全；正式部署可接 store 持久化）。
 type Tracker struct {
-	mu     sync.Mutex
-	nowFn  func() time.Time
-	entries map[string]*Entry // key: SensorID + "/" + ResourceID
+	mu             sync.Mutex
+	nowFn          func() time.Time
+	entries        map[string]*Entry // key: SensorID + "/" + ResourceID
 	resolvedSaving float64
 }
 

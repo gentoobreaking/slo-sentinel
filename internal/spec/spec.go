@@ -14,10 +14,10 @@ type SLO struct {
 	ID          string  `yaml:"id"`
 	Service     string  `yaml:"service"`
 	Description string  `yaml:"description"`
-	SLIQuery    string  `yaml:"sli_query"`    // 錯誤率（或不良事件比）PromQL，值域 [0,1]
-	Objective   float64 `yaml:"objective"`    // 目標百分比，如 99.9
-	WindowDays  int     `yaml:"window_days"`  // 計算視窗天數，預設 28
-	BudgetUSD   float64 `yaml:"budget_usd"`   // （選配）月度預算天花板——供 cost 家族使用
+	SLIQuery    string  `yaml:"sli_query"`   // 錯誤率（或不良事件比）PromQL，值域 [0,1]
+	Objective   float64 `yaml:"objective"`   // 目標百分比，如 99.9
+	WindowDays  int     `yaml:"window_days"` // 計算視窗天數，預設 28
+	BudgetUSD   float64 `yaml:"budget_usd"`  // （選配）月度預算天花板——供 cost 家族使用
 }
 
 func (s SLO) Validate() error {

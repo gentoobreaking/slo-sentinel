@@ -46,14 +46,14 @@ func TestDedupeTransitions(t *testing.T) {
 		state string
 		want  bool
 	}{
-		{"healthy", false},   // 初始 healthy 不通知
-		{"warning", true},    // 首次異常 → 通知
-		{"warning", false},   // 同狀態 → 不重複
-		{"critical", true},   // 升級 → 通知
-		{"critical", false},  // 同狀態 → 不重複
-		{"warning", false},   // critical→warning 降級不單獨通知
-		{"healthy", true},    // 恢復 → 通知 resolved
-		{"warning", true},    // 再次異常 → 又通知
+		{"healthy", false},  // 初始 healthy 不通知
+		{"warning", true},   // 首次異常 → 通知
+		{"warning", false},  // 同狀態 → 不重複
+		{"critical", true},  // 升級 → 通知
+		{"critical", false}, // 同狀態 → 不重複
+		{"warning", false},  // critical→warning 降級不單獨通知
+		{"healthy", true},   // 恢復 → 通知 resolved
+		{"warning", true},   // 再次異常 → 又通知
 	}
 	for i, c := range cases {
 		if got := d.ShouldNotify("s1", c.state); got != c.want {

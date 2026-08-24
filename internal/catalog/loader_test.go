@@ -57,9 +57,9 @@ func writeRules(t *testing.T, dir string) {
 		t.Fatal(err)
 	}
 	files := map[string]string{
-		"rules.yaml":     validRules,
-		"broken.yaml":    badYAML,
-		"readme.txt":     "非 yaml 檔應被略過",
+		"rules.yaml":  validRules,
+		"broken.yaml": badYAML,
+		"readme.txt":  "非 yaml 檔應被略過",
 	}
 	for name, body := range files {
 		p := filepath.Join(dir, name)

@@ -67,8 +67,8 @@ type Prediction struct {
 	PredictedAt     time.Time
 	EtaAggressive   *float64 // 秒；nil 表示該視野無風險或無法預測
 	EtaConservative *float64
-	ActualValue     float64  // 預測當下的指標實際值
-	CatalogVersion  string   // 感測目錄版本，供調整前後命中率對比
+	ActualValue     float64 // 預測當下的指標實際值
+	CatalogVersion  string  // 感測目錄版本，供調整前後命中率對比
 }
 
 // AppendPrediction 記錄一次預測。

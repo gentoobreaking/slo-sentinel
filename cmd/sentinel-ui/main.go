@@ -69,7 +69,7 @@ func main() {
 	mux.HandleFunc("GET /accuracy", handleAccuracy(cfg))
 	mux.HandleFunc("GET /cost", handleCost(cfg))
 	mux.HandleFunc("GET /waste", handleWaste(cfg))
-	mux.HandleFunc("GET /api/status.json", proxyTo(cfg.SentinelAPI + "/api/status.json"))
+	mux.HandleFunc("GET /api/status.json", proxyTo(cfg.SentinelAPI+"/api/status.json"))
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -96,10 +96,10 @@ func isLoopbackAddr(addr string) bool {
 
 func handleIndex(cfg uiConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed（唯讀 UI）", http.StatusMethodNotAllowed)
-		return
-	}
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed（唯讀 UI）", http.StatusMethodNotAllowed)
+			return
+		}
 		var payload struct {
 			States map[string]struct {
 				SensorID  string  `json:"sensor_id"`
@@ -125,17 +125,17 @@ func handleIndex(cfg uiConfig) http.HandlerFunc {
 
 func handleSloDetail(cfg uiConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed（唯讀 UI）", http.StatusMethodNotAllowed)
-		return
-	}
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed（唯讀 UI）", http.StatusMethodNotAllowed)
+			return
+		}
 		id := strings.TrimPrefix(r.URL.Path, "/slo/")
 		if id == "" || strings.Contains(id, "/") {
 			http.Error(w, "invalid sensor id", http.StatusBadRequest)
 			return
 		}
 		var detail struct {
-			SensorID    string  `json:"sensor_id"`
+			SensorID    string                  `json:"sensor_id"`
 			State       *struct{ State string } `json:"state"`
 			Predictions []struct {
 				PredictedAt     string   `json:"predicted_at"`
@@ -168,16 +168,16 @@ func handleSloDetail(cfg uiConfig) http.HandlerFunc {
 
 func handleAccuracy(cfg uiConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed（唯讀 UI）", http.StatusMethodNotAllowed)
-		return
-	}
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed（唯讀 UI）", http.StatusMethodNotAllowed)
+			return
+		}
 		var payload struct {
 			Since   string `json:"since"`
 			Sensors []struct {
-				SensorID     string   `json:"sensor_id"`
-				Predictions  int      `json:"predictions"`
-				LastEtaAgg   *float64 `json:"last_eta_aggressive_sec"`
+				SensorID    string   `json:"sensor_id"`
+				Predictions int      `json:"predictions"`
+				LastEtaAgg  *float64 `json:"last_eta_aggressive_sec"`
 			} `json:"sensors"`
 		}
 		if err := fetchJSON(r.Context(), cfg.SentinelAPI+"/api/accuracy", &payload); err != nil {
@@ -198,10 +198,10 @@ func handleAccuracy(cfg uiConfig) http.HandlerFunc {
 
 func handleCost(cfg uiConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed（唯讀 UI）", http.StatusMethodNotAllowed)
-		return
-	}
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed（唯讀 UI）", http.StatusMethodNotAllowed)
+			return
+		}
 		var payload struct {
 			Enabled          bool    `json:"enabled"`
 			Hint             string  `json:"hint"`
@@ -211,6 +211,17 @@ func handleCost(cfg uiConfig) http.HandlerFunc {
 				Aggressive   float64 `json:"aggressive"`
 				Conservative float64 `json:"conservative"`
 			} `json:"eom_projection"`
+			Estimate *struct {
+				Total    float64 `json:"total"`
+				Currency string  `json:"currency"`
+				Stale    bool    `json:"stale"`
+			} `json:"estimate"`
+			ActualVsEstimate *struct {
+				ActualMTD float64  `json:"actual_mtd"`
+				Estimate  float64  `json:"estimate"`
+				Delta     float64  `json:"delta"`
+				DeltaPct  *float64 `json:"delta_pct"`
+			} `json:"actual_vs_estimate"`
 		}
 		if err := fetchJSON(r.Context(), cfg.SentinelAPI+"/api/cost", &payload); err != nil {
 			http.Error(w, "查詢失敗："+err.Error(), http.StatusBadGateway)
@@ -222,19 +233,30 @@ func handleCost(cfg uiConfig) http.HandlerFunc {
 		}
 		body := fmt.Sprintf(
 			"<p>本月累積：$%.2f（帳務確認至 %s）</p>"+
-			"<p>月底推估：<b>$%.2f</b>（爆量情境 $%.2f）</p>",
+				"<p>月底推估：<b>$%.2f</b>（爆量情境 $%.2f）</p>",
 			payload.MtdUSD, payload.ConfirmedThrough,
 			payload.EomProjection.Conservative, payload.EomProjection.Aggressive)
+		// estimate 對照（§D.0：actual 為校準工具，兩者並存）
+		if payload.ActualVsEstimate != nil && payload.Estimate != nil && payload.Estimate.Total > 0 {
+			staleNote := ""
+			if payload.Estimate.Stale {
+				staleNote = "（部分單價為過期快取）"
+			}
+			body += fmt.Sprintf(
+				"<p>推估（用量×單價）：$%.2f%s｜actual−estimate 差額 $%.2f（%.1f%%）</p>",
+				payload.Estimate.Total, staleNote,
+				payload.ActualVsEstimate.Delta, *payload.ActualVsEstimate.DeltaPct)
+		}
 		page(w, "營運成本", body)
 	}
 }
 
 func handleWaste(cfg uiConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed（唯讀 UI）", http.StatusMethodNotAllowed)
-		return
-	}
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed（唯讀 UI）", http.StatusMethodNotAllowed)
+			return
+		}
 		var payload struct {
 			Candidates []struct {
 				SensorID  string            `json:"sensor_id"`

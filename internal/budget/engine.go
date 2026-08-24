@@ -24,12 +24,12 @@ const (
 
 // 預設觸發門檻（§A.4 表格；YAML 可覆寫）。
 const (
-	DefaultWarnEta      = 72 * time.Hour
-	DefaultCritEta      = 6 * time.Hour
-	DefaultSoftRatio    = 0.80
-	DefaultCritRatio    = 0.95
-	DefaultExitPolls    = 2  // 解除遲滯：連續 N 個輪詢週期低於門檻才降級
-	DefaultEpsilon      = 1e-12 // 斜率絕對值 ≤ ε 視為無成長
+	DefaultWarnEta   = 72 * time.Hour
+	DefaultCritEta   = 6 * time.Hour
+	DefaultSoftRatio = 0.80
+	DefaultCritRatio = 0.95
+	DefaultExitPolls = 2     // 解除遲滯：連續 N 個輪詢週期低於門檻才降級
+	DefaultEpsilon   = 1e-12 // 斜率絕對值 ≤ ε 視為無成長
 )
 
 // 預設迴歸視野窗（§F2：激進=1h 速率；穩健=3d 速率；6h 為中間視野一併提供）。

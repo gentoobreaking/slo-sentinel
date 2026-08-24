@@ -11,10 +11,10 @@ import (
 type FakeSource struct {
 	mu sync.Mutex
 
-	Instant map[string][]Result          // query → results
-	Ranges  map[string]Result            // query → 單一序列（時間範圍由呼叫端決定）
-	Fails   map[string]int               // query → 剩餘失敗次數（回 Retryable 錯誤）
-	Calls   map[string]int               // query → 被呼叫次數
+	Instant map[string][]Result // query → results
+	Ranges  map[string]Result   // query → 單一序列（時間範圍由呼叫端決定）
+	Fails   map[string]int      // query → 剩餘失敗次數（回 Retryable 錯誤）
+	Calls   map[string]int      // query → 被呼叫次數
 }
 
 func NewFake() *FakeSource {

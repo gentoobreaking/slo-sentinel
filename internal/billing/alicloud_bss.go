@@ -82,8 +82,8 @@ func (a *AlicloudBSS) DailySpend(ctx context.Context, f Filter, start, end time.
 		Data struct {
 			Items struct { // BSS 回應：Items 為物件內含 Item 陣列（非標準 JSON 慣例）
 				Item []struct {
-					Date  string  `json:"UsageStartDate"`
-					Cost  float64 `json:"Cost"` // v1 未分幣別，以回傳值為準
+					Date string  `json:"UsageStartDate"`
+					Cost float64 `json:"Cost"` // v1 未分幣別，以回傳值為準
 				} `json:"Item"`
 			} `json:"Items"`
 		} `json:"Data"`

@@ -22,7 +22,7 @@ type httpError struct {
 	msg  string
 }
 
-func (e *httpError) Error() string { return e.msg }
+func (e *httpError) Error() string   { return e.msg }
 func (e *httpError) Retryable() bool { return e.code >= 500 }
 
 // Prometheus 實作以 HTTP API 存取 Prometheus（T003）。
@@ -106,9 +106,9 @@ func (p *Prometheus) once(ctx context.Context, endpoint string, params url.Value
 		Data   struct {
 			ResultType string `json:"resultType"`
 			Result     []struct {
-				Metric map[string]string `json:"metric"`
-				Value  []json.RawMessage `json:"value,omitempty"`       // instant
-				Values [][]json.RawMessage `json:"values,omitempty"`   // range
+				Metric map[string]string   `json:"metric"`
+				Value  []json.RawMessage   `json:"value,omitempty"`  // instant
+				Values [][]json.RawMessage `json:"values,omitempty"` // range
 			} `json:"result"`
 		} `json:"data"`
 	}
@@ -148,9 +148,9 @@ func (p *Prometheus) once(ctx context.Context, endpoint string, params url.Value
 
 type transportError struct{ err error }
 
-func (e *transportError) Error() string { return e.err.Error() }
+func (e *transportError) Error() string   { return e.err.Error() }
 func (e *transportError) Retryable() bool { return true }
-func (e *transportError) Unwrap() error { return e.err }
+func (e *transportError) Unwrap() error   { return e.err }
 
 func parseValue(tsRaw, valRaw json.RawMessage) (time.Time, float64, error) {
 	tsf, err := strconv.ParseFloat(string(tsRaw), 64)

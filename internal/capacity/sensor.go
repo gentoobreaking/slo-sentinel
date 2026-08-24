@@ -62,8 +62,8 @@ func (s *Sensor) Poll(ctx context.Context) (budget.Forecast, error) {
 
 	f, err := budget.Evaluate(budget.Input{
 		Def: budget.Definition{
-			ID:         s.def.ID,
-			Horizons:   horizons,
+			ID:       s.def.ID,
+			Horizons: horizons,
 		},
 		Now:            now,
 		Value:          value,

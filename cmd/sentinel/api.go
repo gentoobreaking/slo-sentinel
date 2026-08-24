@@ -165,16 +165,23 @@ func (a *readAPI) costJSON(w http.ResponseWriter, r *http.Request) {
 	dElapsed := now.Day()
 	rates := cost.EstimateRates(mtd, dElapsed, recentTail(spends, 7))
 	eom := cost.ProjectEOM(mtd, now, rates)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
-		"enabled": true,
+	resp := map[string]any{
+		"enabled":           true,
 		"confirmed_through": lastConfirmed(spends),
-		"mtd_usd": mtd,
+		"mtd_usd":           mtd,
 		"eom_projection": map[string]float64{
 			"aggressive": eom.Aggressive, "conservative": eom.Conservative,
 		},
 		"daily_spends": spends,
-	})
+	}
+	// estimate 模式（§D.0 主路徑）：與 actual 並存，差異供校準對照
+	if a.d.pricer != nil && len(a.d.costMap) > 0 {
+		est := cost.EstimateSpend(r.Context(), a.d.estimateLines(), a.d.pricer)
+		resp["estimate"] = est
+		resp["actual_vs_estimate"] = cost.CompareActualVsEstimate(mtd, est)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 // wasteJSON 即時執行一次 waste 掃描（基於最近載入的目錄）。

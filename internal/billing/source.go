@@ -18,9 +18,9 @@ type DailySpend struct {
 
 // Filter 描述查詢範圍。
 type Filter struct {
-	Account string            // 帳號（可空 = 全部）
-	Tags    map[string]string // 資源標籤（如 team=platform）
-	Services []string         // 指定服務；空 = 全部
+	Account  string            // 帳號（可空 = 全部）
+	Tags     map[string]string // 資源標籤（如 team=platform）
+	Services []string          // 指定服務；空 = 全部
 }
 
 // BillingSource 為帳務來源的抽象介面（adapter 模式，同 query.Source 慣例）。

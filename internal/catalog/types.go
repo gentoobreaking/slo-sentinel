@@ -23,15 +23,15 @@ const (
 
 // Rule 為單一條目（record 或 alert 二擇一）。
 type Rule struct {
-	Record      string            // recording rule 名稱（可空）
-	Alert       string            // alert 名稱（可空）
+	Record      string // recording rule 名稱（可空）
+	Alert       string // alert 名稱（可空）
 	Expr        string
-	For         time.Duration     // alert 的 for 持續時間（0 = 未設定）
-	ForSet      bool              // 是否明確設定 for
+	For         time.Duration // alert 的 for 持續時間（0 = 未設定）
+	ForSet      bool          // 是否明確設定 for
 	Labels      map[string]string
 	Annotations map[string]string
-	Kind        Kind              // 分類結果（見 Classify）
-	SourceFile  string            // 來源檔案路徑
+	Kind        Kind   // 分類結果（見 Classify）
+	SourceFile  string // 來源檔案路徑
 }
 
 // ID 回傳感測識別：優先 sentinel_sensor（label 或 annotation），其次 record/alert 名稱。
@@ -85,9 +85,9 @@ type Group struct {
 
 // Catalog 為成功載入的完整目錄。
 type Catalog struct {
-	Groups     []*Group
-	Version    string // rules.d/community/UPSTREAM_COMMIT 內容（若存在）
-	LoadedAt   time.Time
+	Groups   []*Group
+	Version  string // rules.d/community/UPSTREAM_COMMIT 內容（若存在）
+	LoadedAt time.Time
 }
 
 // RulesOfKind 回傳指定種類的所有規則。

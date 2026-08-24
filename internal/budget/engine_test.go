@@ -104,10 +104,10 @@ func TestDecideCriticalPaths(t *testing.T) {
 	mk := func(etaAgg float64, u float64) Forecast {
 		e := etaAgg
 		return Forecast{
-			EtaAggressive: &e,
+			EtaAggressive:   &e,
 			EtaConservative: &e,
-			Utilization:   u,
-			State:         StateHealthy,
+			Utilization:     u,
+			State:           StateHealthy,
 		}
 	}
 	th := DefaultThresholds()

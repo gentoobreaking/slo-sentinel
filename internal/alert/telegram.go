@@ -21,9 +21,9 @@ type Notifier interface {
 
 // Telegram 以 Bot API sendMessage 推播到指定 chat_id。
 type Telegram struct {
-	Token   string
-	ChatID  int64
-	Client  *http.Client
+	Token    string
+	ChatID   int64
+	Client   *http.Client
 	attempts int
 	backoff  time.Duration
 	nowFn    func() time.Time
@@ -32,9 +32,9 @@ type Telegram struct {
 
 func NewTelegram(token string, chatID int64) *Telegram {
 	return &Telegram{
-		Token:   token,
-		ChatID:  chatID,
-		Client:  &http.Client{},
+		Token:    token,
+		ChatID:   chatID,
+		Client:   &http.Client{},
 		attempts: 3,
 		backoff:  time.Second,
 		nowFn:    time.Now,
@@ -45,8 +45,8 @@ func NewTelegram(token string, chatID int64) *Telegram {
 // Send 推播文字；失敗指數退避重試至多 3 次，最終失敗回傳錯誤（呼叫端記 log 不阻塞主迴圈）。
 func (t *Telegram) Send(ctx context.Context, text string) error {
 	payload := map[string]any{
-		"chat_id": t.ChatID,
-		"text":    text,
+		"chat_id":    t.ChatID,
+		"text":       text,
 		"parse_mode": "Markdown",
 	}
 	body, err := json.Marshal(payload)

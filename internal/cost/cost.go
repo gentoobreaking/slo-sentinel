@@ -35,9 +35,9 @@ func EstimateRates(mtdTotal float64, daysElapsed int, last7Days []billing.DailyS
 
 // EomProjection 為月底推估結果。
 type EomProjection struct {
-	Aggressive  float64 // 用 r_recent：反映爆量情境
+	Aggressive   float64 // 用 r_recent：反映爆量情境
 	Conservative float64 // 用 r_mtd：常態趨勢
-	Budget      float64
+	Budget       float64
 }
 
 // ProjectEOM 推估月底花費：projected_EOM = S + r × 剩餘天數。
@@ -84,8 +84,8 @@ func DetectSpike(todayCost, dailyBudgetAvg float64) bool {
 
 // YearProjection 年推估：已完成月取實際值，未完成月取推估值。
 type MonthPoint struct {
-	Month time.Month
-	Value float64
+	Month  time.Month
+	Value  float64
 	Actual bool // true=已發生（實際值）；false=推估
 }
 

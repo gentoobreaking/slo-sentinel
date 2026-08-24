@@ -18,7 +18,7 @@ import (
 
 // Candidate 為一個瘦身影/殭屍資源候選。
 type Candidate struct {
-	SensorID   string        // algs §8.8：sentinel_sensor 或 alertname
+	SensorID   string // algs §8.8：sentinel_sensor 或 alertname
 	AlertName  string
 	Reason     string        // annotations.summary
 	Window     time.Duration // 判定視窗（如 14d）

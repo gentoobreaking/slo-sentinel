@@ -9,28 +9,28 @@ import (
 
 // Forecast 為一次完整預測的輸出。
 type Forecast struct {
-	ID             string
-	Now            time.Time
-	Value          float64 // m(t₀)
-	Ceiling        float64 // C(t₀)
-	Headroom       float64 // H = Ceiling − Value
-	Utilization    float64 // U = Value / Ceiling
-	EtaAggressive  *float64 // 秒；nil = 該視野無風險（β≤ε）或無法預測
+	ID              string
+	Now             time.Time
+	Value           float64  // m(t₀)
+	Ceiling         float64  // C(t₀)
+	Headroom        float64  // H = Ceiling − Value
+	Utilization     float64  // U = Value / Ceiling
+	EtaAggressive   *float64 // 秒；nil = 該視野無風險（β≤ε）或無法預測
 	EtaConservative *float64
-	PerWindow      map[string]*WindowEval
-	State          State
-	ExitStreak     int    // 解除遲滯計數（連續低於門檻的輪詢次數）
-	CeilingJumped  bool   // 本輪偵測到天花板跳變 >1%
+	PerWindow       map[string]*WindowEval
+	State           State
+	ExitStreak      int  // 解除遲滯計數（連續低於門檻的輪詢次數）
+	CeilingJumped   bool // 本輪偵測到天花板跳變 >1%
 }
 
 // WindowEval 為單一視野窗的評估結果。
 type WindowEval struct {
-	Window   time.Duration
-	Slope    *float64 // 單位/秒；nil = 樣本不足
-	Samples  int
-	ETA      *float64 // 秒
-	Valid    bool
-	Reason   string // 無效原因（樣本不足/全為缺口…）
+	Window  time.Duration
+	Slope   *float64 // 單位/秒；nil = 樣本不足
+	Samples int
+	ETA     *float64 // 秒
+	Valid   bool
+	Reason  string // 無效原因（樣本不足/全為缺口…）
 }
 
 // Definition 描述一個容量/SLO 預算感測的查詢與門檻。
@@ -47,13 +47,13 @@ type Input struct {
 	Now            time.Time
 	Value          float64
 	Ceiling        float64
-	PrevCeiling    float64                       // 上次天花板；≤0 表示首次觀測
+	PrevCeiling    float64                          // 上次天花板；≤0 表示首次觀測
 	Samples        map[time.Duration][]query.Sample // 各視野窗原始樣本（含至 Now）
-	Interval       time.Duration                 // 取樣間隔
-	PrevState      State                         // 上次狀態（解除遲滯用）
-	PrevExitStreak int                           // 連續低於門檻次數
-	Th             Thresholds                    // 門檻（零值 → DefaultThresholds）
-	UseOLS         bool                          // 實驗旗標：改用 OLS 斜率
+	Interval       time.Duration                    // 取樣間隔
+	PrevState      State                            // 上次狀態（解除遲滯用）
+	PrevExitStreak int                              // 連續低於門檻次數
+	Th             Thresholds                       // 門檻（零值 → DefaultThresholds）
+	UseOLS         bool                             // 實驗旗標：改用 OLS 斜率
 }
 
 // Evaluate 執行 §A.3–A.6 的完整預測流程。

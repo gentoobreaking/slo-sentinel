@@ -19,10 +19,12 @@ import (
 
 	"slo-sentinel/config"
 	"slo-sentinel/internal/alert"
-	"slo-sentinel/internal/budget"
 	"slo-sentinel/internal/billing"
+	"slo-sentinel/internal/budget"
 	"slo-sentinel/internal/capacity"
 	"slo-sentinel/internal/catalog"
+	"slo-sentinel/internal/cost"
+	"slo-sentinel/internal/pricing"
 	"slo-sentinel/internal/promdur"
 	"slo-sentinel/internal/query"
 	"slo-sentinel/internal/store"
@@ -57,12 +59,14 @@ type daemon struct {
 	notifier alert.Notifier
 	dedupe   *alert.Dedupe
 	amcoord  *alert.AMCoord
-	capDefs    []capacity.Def
-	metrics    *metricsRegistry
+	capDefs  []capacity.Def
+	metrics  *metricsRegistry
 
 	sensors     []sensorRunner
 	lastCatalog *catalog.Catalog
 	billingSrc  billing.BillingSource // 由環境變數組態；nil = 未啟用
+	pricer      *pricing.Catalog      // estimate 模式單價目錄；nil = 未啟用
+	costMap     []cost.UsageTemplate  // 感測 → 價目家族映射；空 = 未啟用
 }
 
 func newDaemon(cfg config.Config, log *slog.Logger, src query.Source, st *store.Store) *daemon {
@@ -83,6 +87,25 @@ func newDaemon(cfg config.Config, log *slog.Logger, src query.Source, st *store.
 		log.Info("billing_source_enabled", "source", "alicloud-bss")
 	}
 
+	// estimate 模式（algs/cost-forecast.md §D.0 主路徑）：
+	// SENTINEL_COST_MAP 指向「感測 → 價目家族」映射檔即啟用；無需任何 billing IAM。
+	var pricer *pricing.Catalog
+	var costMap []cost.UsageTemplate
+	if mapPath := os.Getenv("SENTINEL_COST_MAP"); mapPath != "" {
+		cm, err := cost.LoadCostMap(mapPath)
+		if err != nil {
+			log.Error("cost_map_load_failed", "error", err.Error())
+		} else {
+			ali := &pricing.AlicloudSKU{
+				AccessKeyID:     os.Getenv("ALICLOUD_ACCESS_KEY_ID"),
+				AccessKeySecret: os.Getenv("ALICLOUD_ACCESS_KEY_SECRET"),
+			}
+			pricer = &pricing.Catalog{CacheDir: envOr("PRICING_CACHE_DIR", ".pricing-cache"), Ali: ali}
+			costMap = cm
+			log.Info("estimate_mode_enabled", "mappings", len(cm))
+		}
+	}
+
 	var notifier alert.Notifier
 	if cfg.TelegramToken != "" {
 		notifier = alert.NewTelegram(cfg.TelegramToken, telegramChatFromEnv())
@@ -91,15 +114,17 @@ func newDaemon(cfg config.Config, log *slog.Logger, src query.Source, st *store.
 		notifier = alert.LogNotifier{}
 	}
 	return &daemon{
-		cfg:      cfg,
-		log:      log,
-		src:      src,
-		st:       st,
-		notifier: notifier,
-		dedupe:   alert.NewDedupe(),
-		amcoord:  &alert.AMCoord{BaseURL: cfg.AlertManagerURL},
-		metrics:  newMetricsRegistry(),
+		cfg:        cfg,
+		log:        log,
+		src:        src,
+		st:         st,
+		notifier:   notifier,
+		dedupe:     alert.NewDedupe(),
+		amcoord:    &alert.AMCoord{BaseURL: cfg.AlertManagerURL},
+		metrics:    newMetricsRegistry(),
 		billingSrc: bill,
+		pricer:     pricer,
+		costMap:    costMap,
 	}
 }
 
@@ -125,6 +150,7 @@ func (d *daemon) setupSensors(ctx context.Context) error {
 			},
 		})
 	}
+	d.capDefs = defs // 每週摘要的擴容軌跡比對用（§D.5）
 
 	// SLO 預算感測（F1/F2）：以 SLIQuery 為消耗量、預算比為天花板重用同一引擎
 	slos, err := specLoadAll(d.cfg.SloDefsDir)
@@ -195,11 +221,11 @@ func (d *daemon) runOnePoll(ctx context.Context) error {
 			}
 			// 記錄預測（/accuracy 自評資料源）
 			if err := d.st.AppendPrediction(store.Prediction{
-				SensorID:    f.ID,
-				PredictedAt: f.Now,
+				SensorID:        f.ID,
+				PredictedAt:     f.Now,
 				EtaAggressive:   f.EtaAggressive,
 				EtaConservative: f.EtaConservative,
-				ActualValue: f.Value,
+				ActualValue:     f.Value,
 			}); err != nil {
 				d.log.Error("append_prediction_failed", "sensor", f.ID, "error", err.Error())
 			}
@@ -295,8 +321,86 @@ func (d *daemon) Run(ctx context.Context) error {
 			if err := d.runOnePoll(ctx); err != nil {
 				return nil
 			}
+			d.maybeWeeklyCost(ctx, time.Now().UTC()) // 每週成本摘要（§D.5，同 ISO 週去重）
 		}
 	}
+}
+
+// estimateLines 依映射範本＋感測最新值組出用量列（§D.0：用量取自 capacity/waste 感測）。
+func (d *daemon) estimateLines() []cost.UsageLine {
+	var lines []cost.UsageLine
+	for _, tpl := range d.costMap {
+		q := 0.0
+		if st, err := d.st.GetState(tpl.Sensor); err == nil && st != nil {
+			q = st.LastValue
+		}
+		lines = append(lines, cost.UsageLine{UsageTemplate: tpl, Quantity: q})
+	}
+	return lines
+}
+
+// maybeWeeklyCost 每輪檢查是否該發每週成本摘要（§D.5）：
+// 同一 ISO 週只發一封；需 actual 帳務來源（成長服務需要分服務日花費）。
+func (d *daemon) maybeWeeklyCost(ctx context.Context, now time.Time) {
+	if d.billingSrc == nil || os.Getenv("WEEKLY_COST_SUMMARY") == "off" {
+		return
+	}
+	const stateID = "__weekly_cost_summary__"
+	weekKey := cost.ISOWeekKey(now)
+	if prev, _ := d.st.GetState(stateID); prev != nil && string(prev.State) == weekKey {
+		return // 本週已發
+	}
+
+	thisStart := now.AddDate(0, 0, -7).Truncate(24 * time.Hour)
+	prevEnd := thisStart.Add(-time.Second)
+	prevStart := now.AddDate(0, 0, -14).Truncate(24 * time.Hour)
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+
+	thisWeek, err := d.billingSrc.DailySpend(ctx, billing.Filter{}, thisStart, now)
+	if err != nil {
+		d.log.Warn("weekly_cost_fetch_failed", "error", err.Error())
+		return
+	}
+	prevWeek, _ := d.billingSrc.DailySpend(ctx, billing.Filter{}, prevStart, prevEnd)
+	spends, _ := d.billingSrc.DailySpend(ctx, billing.Filter{}, monthStart, now)
+
+	var mtd float64
+	for _, sp := range spends {
+		mtd += sp.CostUSD
+	}
+	rates := cost.EstimateRates(mtd, now.Day(), recentTail(spends, 7))
+	eom := cost.ProjectEOM(mtd, now, rates)
+
+	rows := cost.WeeklyTopGrowth(cost.WeeklyGrowthInput{
+		ThisWeek: thisWeek, PrevWeek: prevWeek, CapTrend: d.capacityTrend(ctx, now),
+	}, 5)
+	confirmed := time.Now()
+	if len(spends) > 0 {
+		confirmed = spends[len(spends)-1].Date
+	}
+	msg := cost.FormatWeeklySummary(rows, eom, confirmed)
+	if err := d.notifier.Send(ctx, msg); err != nil {
+		d.log.Error("weekly_summary_send_failed", "error", err.Error())
+		return // 未成功不登記，下一輪重試
+	}
+	lastNotify := now
+	_ = d.st.SetState(store.SensorState{SensorID: stateID, State: weekKey, LastNotifyAt: lastNotify})
+	d.log.Info("weekly_summary_sent", "week", weekKey)
+}
+
+// capacityTrend 近 7 天各容量感測數值變化量（>0 = 擴容中），供成長原因比對。逐項 best-effort。
+func (d *daemon) capacityTrend(ctx context.Context, now time.Time) map[string]float64 {
+	out := map[string]float64{}
+	start := now.AddDate(0, 0, -7)
+	for _, def := range d.capDefs {
+		res, err := d.src.RangeQuery(ctx, def.Metric.Value, start, now, time.Hour)
+		if err != nil || len(res) == 0 || len(res[0].Samples) < 2 {
+			continue
+		}
+		samples := res[0].Samples
+		out[def.ID] = samples[len(samples)-1].Value - samples[0].Value
+	}
+	return out
 }
 
 // formatForecastCard 產生人話卡（雙視野並陳，§A.3/A.7 格式）。

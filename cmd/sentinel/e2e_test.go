@@ -33,9 +33,9 @@ func (c *captureNotifier) Send(_ context.Context, text string) error {
 
 // fakeRisingSource 模擬穩定成長的磁碟消耗量（§A.7 變體）。
 type fakeRisingSource struct {
-	base    float64
-	perMin  float64
-	now     time.Time
+	base   float64
+	perMin float64
+	now    time.Time
 }
 
 func (f *fakeRisingSource) valueAt(t time.Time) float64 {
