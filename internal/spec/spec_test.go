@@ -148,7 +148,7 @@ func TestLoadThresholdsPartialOverride(t *testing.T) {
 
 func TestLoadInvalidThresholdCombinations(t *testing.T) {
 	cases := map[string]string{
-		"soft ≥ crit":       "soft_ratio: 0.95\n        crit_ratio: 0.90",
+		"soft ≥ crit":         "soft_ratio: 0.95\n        crit_ratio: 0.90",
 		"warn_eta ≤ crit_eta": "warn_eta: 4h\n        crit_eta: 6h",
 	}
 	for name, body := range cases {

@@ -6,27 +6,27 @@ import (
 	"os"
 	"path/filepath"
 
+	"gopkg.in/yaml.v3"
 	"slo-sentinel/internal/budget"
 	"slo-sentinel/internal/promdur"
-	"gopkg.in/yaml.v3"
 )
 
 // SLO 為單一服務等級目標定義。
 type SLO struct {
-	ID          string  `yaml:"id"`
-	Service     string  `yaml:"service"`
-	Description string  `yaml:"description"`
-	SLIQuery    string  `yaml:"sli_query"`   // 錯誤率（或不良事件比）PromQL，值域 [0,1]
-	Objective   float64 `yaml:"objective"`   // 目標百分比，如 99.9
-	WindowDays  int     `yaml:"window_days"` // 計算視窗天數，預設 28
-	BudgetUSD   float64 `yaml:"budget_usd"`  // （選配）月度預算天花板——供 cost 家族使用
-	Thresholds  *ThresholdsOverlay `yaml:"thresholds"` // （選配）觸發門檻覆寫（T023）；nil → 全預設
+	ID          string             `yaml:"id"`
+	Service     string             `yaml:"service"`
+	Description string             `yaml:"description"`
+	SLIQuery    string             `yaml:"sli_query"`   // 錯誤率（或不良事件比）PromQL，值域 [0,1]
+	Objective   float64            `yaml:"objective"`   // 目標百分比，如 99.9
+	WindowDays  int                `yaml:"window_days"` // 計算視窗天數，預設 28
+	BudgetUSD   float64            `yaml:"budget_usd"`  // （選配）月度預算天花板——供 cost 家族使用
+	Thresholds  *ThresholdsOverlay `yaml:"thresholds"`  // （選配）觸發門檻覆寫（T023）；nil → 全預設
 }
 
 // ThresholdsOverlay 允許部分覆寫 SLO 感測門檻（比照 capacity 家族；T023）。
 type ThresholdsOverlay struct {
-	WarnEta   *string  `yaml:"warn_eta"`   // 如 "48h"
-	CritEta   *string  `yaml:"crit_eta"`   // 如 "4h"
+	WarnEta   *string  `yaml:"warn_eta"` // 如 "48h"
+	CritEta   *string  `yaml:"crit_eta"` // 如 "4h"
 	SoftRatio *float64 `yaml:"soft_ratio"`
 	CritRatio *float64 `yaml:"crit_ratio"`
 }
