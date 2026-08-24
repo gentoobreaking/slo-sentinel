@@ -3,7 +3,6 @@ package catalog
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -15,9 +14,6 @@ import (
 // Watch 監看 dir（含第一層子目錄）的變更，檔案事件經 debounce 後重新載入並呼叫 onChange。
 // 回傳的 stop 函式用於結束監看。onChange 內不可長時間阻塞。
 func (l *Loader) Watch(ctx context.Context, dir string, onChange func(*Catalog)) (stop func(), err error) {
-	if l.Logger == nil {
-		l.Logger = slog.Default()
-	}
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("fsnotify: %w", err)
@@ -31,7 +27,7 @@ func (l *Loader) Watch(ctx context.Context, dir string, onChange func(*Catalog))
 	for _, e := range entries {
 		if e.IsDir() {
 			if werr := watcher.Add(filepath.Join(dir, e.Name())); werr != nil {
-				l.Logger.Warn("watch_subdir_failed", "dir", e.Name(), "error", werr.Error())
+				l.log().Warn("watch_subdir_failed", "dir", e.Name(), "error", werr.Error())
 			}
 		}
 	}
@@ -46,11 +42,11 @@ func (l *Loader) Watch(ctx context.Context, dir string, onChange func(*Catalog))
 	reload := func() {
 		cat, quarantined, err := l.Load(dir)
 		if err != nil {
-			l.Logger.Warn("catalog_reload_failed", "error", err.Error())
+			l.log().Warn("catalog_reload_failed", "error", err.Error())
 			return
 		}
 		for _, q := range quarantined {
-			l.Logger.Warn("rule_file_quarantined_on_reload", "path", q.Path, "reason", q.Reason)
+			l.log().Warn("rule_file_quarantined_on_reload", "path", q.Path, "reason", q.Reason)
 		}
 		onChange(cat)
 	}
@@ -85,7 +81,14 @@ func (l *Loader) Watch(ctx context.Context, dir string, onChange func(*Catalog))
 				})
 				mu.Unlock()
 			case werr := <-watcher.Errors:
-				l.Logger.Warn("catalog_watch_error", "error", werr.Error())
+				// 停止後的殘餘事件（如監看目錄被清理）直接忽略，避免 teardown 競態 panic
+				mu.Lock()
+				wasStopped := stopped
+				mu.Unlock()
+				if wasStopped || werr == nil {
+					continue
+				}
+				l.log().Warn("catalog_watch_error", "error", werr.Error())
 			}
 		}
 	}()

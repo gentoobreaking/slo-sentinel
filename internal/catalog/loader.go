@@ -24,6 +24,14 @@ type Loader struct {
 	promtoolDone bool
 }
 
+// log 回傳可用 logger（nil-safe）。
+func (l *Loader) log() *slog.Logger {
+	if l.Logger != nil {
+		return l.Logger
+	}
+	return slog.Default()
+}
+
 // rulesFile 對應 Prometheus rules 檔的標準格式。
 type rulesFile struct {
 	Groups []struct {
@@ -48,9 +56,6 @@ type ruleYAML struct {
 //
 // 回傳目錄、隔離清單。dir 不存在時回傳空目錄與 error（呼叫端決定是否致命）。
 func (l *Loader) Load(dir string) (*Catalog, []Quarantine, error) {
-	if l.Logger == nil {
-		l.Logger = slog.Default()
-	}
 	l.checkPromtool()
 
 	cat := &Catalog{LoadedAt: time.Now().UTC()}
@@ -92,13 +97,13 @@ func (l *Loader) Load(dir string) (*Catalog, []Quarantine, error) {
 	}
 
 	cat.Version = l.upstreamVersion(dir)
-	l.Logger.Info("catalog_loaded",
+	l.log().Info("catalog_loaded",
 		"groups", len(cat.Groups),
 		"quarantined", len(quarantined),
 		"version", cat.Version,
 	)
 	for _, q := range quarantined {
-		l.Logger.Warn("rule_file_quarantined", "path", q.Path, "reason", q.Reason)
+		l.log().Warn("rule_file_quarantined", "path", q.Path, "reason", q.Reason)
 	}
 	return cat, quarantined, nil
 }
@@ -189,7 +194,7 @@ func (l *Loader) checkPromtool() {
 	l.promtoolDone = true
 	path, err := exec.LookPath("promtool")
 	if err != nil {
-		l.Logger.Warn("promtool_not_found_rules_unvalidated",
+		l.log().Warn("promtool_not_found_rules_unvalidated",
 			"hint", "安裝 prometheus 後將 promtool 放入 PATH 以啟用規則驗證")
 		return
 	}
