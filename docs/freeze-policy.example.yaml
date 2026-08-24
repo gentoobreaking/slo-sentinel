@@ -1,0 +1,43 @@
+# ============================================================
+# 凍結政策（Freeze Policy）——成本/預算約束行為的唯一事實來源
+#
+# 這份檔案的變更必須走 git 審查：
+#   - 「團隊明文同意」= 這份檔案的修改被 approve 並合併
+#   - 歷史由 git log 承載（誰/何時/改了什麼）
+#   - sentinel 啟動時載入；mode=enforce 但前置證據不足時，
+#     系統會**拒絕以 enforce 模式啟動**並自動降級 notify（防呆）
+# ============================================================
+
+policy:
+  # notify   : 軟性模式——CI 留言警告 + 全程紀錄，部署不受限
+  # enforce  : 規範模式——依下方 thresholds 定義的條件政策暫停部署，
+  #            豁免須經 approvers 批准並留下原因紀錄
+  #
+  # ★ 運行時切換（T021）：
+  #   - 永久切換：修改此檔的 mode 並存檔 → sentinel 熱載入立即生效（變更走 git 審查）
+  #   - 臨時覆寫：sentinel policy override --mode notify --duration 24h --reason "..."
+  #     （寫入 SQLite 帶到期時間，到期自動還原；永久調整仍以修改本檔為準）
+  mode: notify
+
+  # 切換到 enforce 的前置證據（系統啟動時驗證，缺一自動降級 notify）：
+  prerequisites:
+    min_running_days: 30        # daemon 實際運行天數
+    accuracy_required: true     # /accuracy 預測命中率報告已產出且達標
+    approved_by: []             # 明文同意紀錄（至少一人；git 審查即為同意憑證）
+    # - name: david
+    #   role: owner
+    #   date: 2026-09-28
+    #   channel: "團隊會議決議 / PR #12"
+
+thresholds:                     # enforce 模式下的觸發門檻（同 algs/capacity-eta.md §A.4）
+  warn_eta: 72h                 # warning：ETA 低於此 → CI 留言警告
+  crit_eta: 6h                  # critical：ETA 低於此 → 暫停部署（enforce 時）
+
+scope: []                       # 適用的服務/專案清單
+#  - project: api
+#    ci: github-actions         # github-actions | gitlab | generic-webhook
+
+waiver:
+  max_duration: 24h             # 豁免有效期（逾時自動恢復阻擋）
+  approvers: []                 # 可批准豁免者；空 = enforce 模式下不可繞過
+  require_reason: true          # 豁免必須附原因（入時間線供 postmortem 追溯）
