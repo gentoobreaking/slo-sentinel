@@ -285,6 +285,10 @@ git diff && git commit                                      # 審查後生效
 yaml.Node 原位改寫保留註解。上游完整快取在 `.community-upstream/`
 （gitignore，位於載入路徑之外），只有 SELECTED 的服務會進入 `rules.d/community/`。
 
+> 📖 **完整分類學文件**：四種 kind 的判定優先序、waste 掃描執行流程、
+> 自動分類信號細節與決策速查——見
+> [`docs/rule-classification.md`](docs/rule-classification.md)。
+
 ## Deployment
 
 容器化部署（docker compose，daemon＋UI 兩服務、healthcheck、資料卷持久化）見上方
