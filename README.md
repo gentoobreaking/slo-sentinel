@@ -76,12 +76,16 @@ internal/
 ├── capacity/       容量感測引擎（capacity_defs 解析＋Sensor.Poll）
 ├── billing/        帳務 adapter（AWS CE SigV4 / 阿里雲 BSS HMAC）
 ├── cost/           成本推估與報表
+├── pricing/        公開價目表目錄（AWS Query/Bulk API＋阿里雲 SKU；estimate 模式主路徑）
 ├── waste/          瘦身掃描器＋tracker（cloud/k8s/standalone providers）
 ├── alert/          Telegram 直推/dedupe/AM 協調/每日摘要
 └── store/          SQLite 狀態與預測紀錄（WAL）
 docs/               部署文件＋freeze-policy 範本
+deploy/docker/      容器設定範本（sentinel.yaml / sentinel-ui.json）＋ entrypoint.sh
 algs/               （任務書側）演算法規格
 scripts/            sync-community.sh（上游規則同步）
+Dockerfile          多階段建置（golang:alpine → alpine:latest，非 root）
+docker-compose.yml  daemon + UI 兩服務編排（healthcheck/資料卷）
 ```
 
 ## Requirements
@@ -102,16 +106,44 @@ make build   # 產出 bin/sentinel bin/sentinel-ui
 ### Docker（alpine base，多階段建置）
 
 ```bash
-make docker-up      # 建置映像並啟動 daemon + UI（docker compose）
-#   daemon：http://127.0.0.1:9099（JSON API）/ 127.0.0.1:9102（metrics）
-#   UI    ：http://127.0.0.1:9098（唯讀；對外請置於反向代理認證之後）
+make docker-up      # 建置映像並啟動 daemon + UI（docker compose up -d --build）
 make docker-down    # 停止（SQLite/快取保留在 named volume）
 make docker-build   # 只建置映像 slo-sentinel:latest
+make docker-logs    # 追蹤兩個服務的日誌
 ```
 
-- 容器設定範本：`deploy/docker/sentinel.yaml`（daemon）、`deploy/docker/sentinel-ui.json`（UI）；
-  掛載點 `/etc/sentinel/`、`/srv/sentinel/{rules.d,slo_defs,capacity_defs}`（唯讀）、`/var/lib/sentinel`（資料卷）
-- 敏感資訊走環境變數（`TELEGRAM_CHAT_ID`、雲端金鑰等），見 `docker-compose.yml` 註解
+**映像設計**：多階段建置——`golang:alpine` 靜態編譯（`CGO_ENABLED=0`，
+SQLite 走純 Go 的 modernc.org/sqlite）→ `alpine:latest` 執行層；
+以非 root 用戶 `sentinel` 執行（entrypoint 先修正資料卷權限再 `su-exec` 降權）；
+內建 `promtool` 供 rules.d 語法驗證。兩個服務共用同一映像，以 entrypoint/command 切換。
+
+**服務與連接埠**：
+
+| 容器 | 說明 | 連接埠（宿主端預設僅綁本機） |
+|---|---|---|
+| `sentinel` | daemon＋唯讀 JSON API＋metrics | `127.0.0.1:9099`（API）、`127.0.0.1:9102`（metrics） |
+| `sentinel-ui` | 唯讀網頁（反向代理 sentinel API） | `127.0.0.1:9098`——對外務必置於反向代理認證之後 |
+
+**掛載點**：
+
+| 容器路徑 | 來源 | 權限 |
+|---|---|---|
+| `/etc/sentinel/sentinel.yaml` | `deploy/docker/sentinel.yaml` | ro |
+| `/etc/sentinel/sentinel-ui.json`（UI 容器） | `deploy/docker/sentinel-ui.json` | ro |
+| `/srv/sentinel/rules.d`、`/srv/sentinel/slo_defs`、`/srv/sentinel/capacity_defs` | repo 對應目錄 | ro（rules.d 支援熱載入） |
+| `/var/lib/sentinel` | named volume `sentinel-data` | rw（SQLite WAL＋pricing 快取） |
+
+**環境變數**（見 `docker-compose.yml`）：`TELEGRAM_CHAT_ID`、
+AWS／阿里雲金鑰（actual 成本模式）、`SENTINEL_COST_MAP`（estimate 模式映射檔）、
+`PRICING_CACHE_DIR`（容器內已預設指向資料卷）。敏感資訊一律走環境變數或 secrets，勿寫進映像。
+
+**Healthcheck**：daemon 打自身 `GET /api/status.json`；UI 打自身首頁——
+compose 已為各服務覆寫，不會互相誤判。`depends_on: condition: service_healthy`
+確保 UI 等 daemon 就緒才啟動。
+
+> 注意：本機 `~/.docker` 受 macOS 權限保護時，buildx 可能報
+> `operation not permitted`；此時可用 `DOCKER_BUILDKIT=0 make docker-build`
+> （legacy builder，同樣支援多階段建置）。
 
 ## Configuration
 
@@ -126,7 +158,7 @@ make docker-build   # 只建置映像 slo-sentinel:latest
 | `telegram_token` | — | 未設定時通知降級為 log-only |
 | `rules_dir` | `rules.d` | 感測目錄（熱載入） |
 | `capacity_defs_dir` | `capacity_defs` | 容量感測定義 |
-| `db_path` | `sentinel.db` | SQLite（WAL） |
+| `db_path` | `sentinel.db` | SQLite（WAL）；相對路徑相對工作目錄，絕對路徑照用（容器部署必需） |
 | `listen_addr` | `127.0.0.1:9099` | 唯讀 JSON API——勿對外公開 |
 | `metrics_addr` | `127.0.0.1:9102` | Prometheus scrape 目標 |
 | `log_format` | `json` | json / text |
@@ -189,10 +221,11 @@ make build         # 產出 bin/ 並於 CI 驗證 ≤20MB
 
 ## Deployment
 
-`docs/deploy.md` 有完整 systemd unit、rules.d 佈建流程（含 Sloth 整合與
-awesome-prometheus-alerts 上游同步腳本 `scripts/sync-community.sh`）、以及
-Prometheus scrape job 設定說明。CI（`.github/workflows/ci.yml`）涵蓋
-vet/test/binary 大小檢查（≤20MB）。
+容器化部署（docker compose，daemon＋UI 兩服務、healthcheck、資料卷持久化）見上方
+「Installation → Docker」；裸機/systemd 部署見 `docs/deploy.md`——含 systemd unit、
+rules.d 佔建流程（Sloth 整合與 awesome-prometheus-alerts 上游同步腳本
+`scripts/sync-community.sh`）、Prometheus scrape job 設定說明。CI
+（`.github/workflows/ci.yml`）涵蓋 vet/test/binary 大小檢查（≤20MB）。
 
 ## Security
 
