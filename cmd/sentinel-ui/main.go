@@ -15,8 +15,10 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -154,19 +156,70 @@ func handleSloDetail(cfg uiConfig) http.HandlerFunc {
 			stateStr = detail.State.State
 		}
 		var rows strings.Builder
+		catVer := ""
 		for _, p := range detail.Predictions {
-			fmt.Fprintf(&rows, "<tr><td>%s</td><td>%v s</td><td>%v s</td><td>%.4g</td><td>%s</td></tr>\n",
-				fmtGMT8(p.PredictedAt), ptrVal(p.EtaAggressive), ptrVal(p.EtaConservative),
-				p.ActualValue, p.CatalogVersion)
+			fmt.Fprintf(&rows, "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",
+				fmtGMT8(p.PredictedAt), humanDur(p.EtaAggressive), humanDur(p.EtaConservative),
+				thousandSep(p.ActualValue))
+			if p.CatalogVersion != "" {
+				catVer = p.CatalogVersion
+			}
+		}
+		note := ""
+		if catVer != "" {
+			note = `<p style="color:#888;font-size:small">目錄版本：` + catVer + `</p>`
 		}
 		body := fmt.Sprintf("<h2>%s</h2><p>狀態：%s</p>"+
-			"<table border='1' cellpadding='4'><tr><th>預測時間</th><th>ETA 激進(s)</th><th>ETA 穩健(s)</th><th>實際值</th><th>目錄版本</th></tr>\n%s</table>",
-			id, stateStr, rows.String())
+			"<table border='1' cellpadding='4'><tr><th>預測時間</th><th>激進預估（1 小時速率）</th>"+
+			"<th>穩健預估（最長窗速率）</th><th>當下用量</th></tr>\n%s</table>%s",
+			id, stateStr, rows.String(), note)
 		page(w, "感測詳情："+id, body)
 	}
 }
 
 var gmt8 = time.FixedZone("GMT+8", 8*3600)
+
+// humanDur 將預測秒數轉為人話（T031）。
+// 契約對齊引擎：nil = 斜率 ≤ ε（無成長，不存在觸頂）；負值 = 已穿越天花板。
+func humanDur(sec *float64) string {
+	if sec == nil {
+		return "無成長跡象"
+	}
+	s := *sec
+	switch {
+	case s < 0:
+		return "已越過天花板"
+	case s < 120*60:
+		return fmt.Sprintf("約 %.0f 分鐘後觸頂", math.Max(s, 0)/60)
+	case s < 48*3600:
+		return fmt.Sprintf("約 %.1f 小時後觸頂", s/3600)
+	default:
+		return fmt.Sprintf("約 %.1f 天後觸頂", s/86400)
+	}
+}
+
+// thousandSep 千分位格式化（保留小數部分；感測單位未知，不虛構單位）。
+func thousandSep(v float64) string {
+	s := strconv.FormatFloat(v, 'f', -1, 64)
+	neg := strings.HasPrefix(s, "-")
+	s = strings.TrimPrefix(s, "-")
+	intPart, frac, _ := strings.Cut(s, ".")
+	var b []byte
+	for i := 0; i < len(intPart); i++ {
+		if i > 0 && (len(intPart)-i)%3 == 0 {
+			b = append(b, ',')
+		}
+		b = append(b, intPart[i])
+	}
+	out := string(b)
+	if frac != "" {
+		out += "." + frac
+	}
+	if neg {
+		out = "-" + out
+	}
+	return out
+}
 
 // fmtGMT8 將 RFC3339 UTC 時間戳轉為 GMT+8 人話格式顯示。
 // 解析失敗時回傳原字串（容錯不擋頁面）。固定偏移而非載入 tzdata——

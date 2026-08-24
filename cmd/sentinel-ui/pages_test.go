@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -13,7 +14,8 @@ func fakeSentinel() *httptest.Server {
 	})
 	mux.HandleFunc("/api/slo/disk", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"sensor_id":"disk","state":{"state":"critical"},"predictions":[
-		  {"predicted_at":"2026-08-24T00:00:00Z","eta_aggressive":10500,"eta_conservative":420000,"actual_value":270,"catalog_version":"v1"}]}`))
+		  {"predicted_at":"2026-08-24T00:00:00Z","eta_aggressive":null,"eta_conservative":-3600,"actual_value":1788000000},
+		  {"predicted_at":"2026-08-24T01:00:00Z","eta_aggressive":10500,"eta_conservative":420000,"actual_value":1234567,"catalog_version":"v1"}]}`))
 	})
 	mux.HandleFunc("/api/accuracy", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"since":"2026-08-17T00:00:00Z","sensors":[{"sensor_id":"disk","predictions":5,"last_eta_aggressive_sec":6900}]}`))
@@ -45,7 +47,7 @@ func TestPagesRender(t *testing.T) {
 		want []string
 	}{
 		{"/", []string{"感測總表", "disk", "critical"}},
-		{"/slo/disk", []string{"感測詳情", "ETA 激進", "v1"}},
+		{"/slo/disk", []string{"感測詳情", "激進預估", "目錄版本：v1"}},
 		{"/accuracy", []string{"命中統計", "2026-08-17"}},
 		{"/cost", []string{"月底推估", "$320", "2026-08-23"}},
 		{"/waste", []string{"候選", "cloud.elb.zero-traffic", "14 天"}},
@@ -117,3 +119,62 @@ func TestFmtGMT8(t *testing.T) {
 		t.Fatalf("fallback broken: %q", got)
 	}
 }
+
+// ---- T031：欄位人話化 ----
+
+func TestHumanDurBoundaries(t *testing.T) {
+	cases := []struct {
+		sec  *float64
+		want string
+	}{
+		{nil, "無成長跡象"},
+		{ptr(-5), "已越過天花板"},
+		{ptr(0), "約 0 分鐘後觸頂"},
+		{ptr(90 * 60), "約 90 分鐘後觸頂"},
+		{ptr(3 * 3600), "約 3.0 小時後觸頂"},
+		{ptr(72 * 3600), "約 3.0 天後觸頂"},
+		{ptr(100 * 86400), "約 100.0 天後觸頂"},
+	}
+	for _, c := range cases {
+		if got := humanDur(c.sec); got != c.want {
+			t.Fatalf("humanDur(%v) = %q, want %q", c.sec, got, c.want)
+		}
+	}
+}
+
+func TestThousandSep(t *testing.T) {
+	cases := map[float64]string{
+		0:         "0",
+		1234567:   "1,234,567",
+		-9876543:  "-9,876,543",
+		12.5:      "12.5",
+		1.788e+09: "1,788,000,000",
+	}
+	for v, want := range cases {
+		if got := thousandSep(v); got != want {
+			t.Fatalf("thousandSep(%v) = %q, want %q", v, got, want)
+		}
+	}
+}
+
+func TestSloDetailHumanizedRows(t *testing.T) {
+	api := fakeSentinel()
+	defer api.Close()
+	cfg := uiConfig{SentinelAPI: api.URL, ListenAddr: "127.0.0.1:9098"}
+	rec := httptest.NewRecorder()
+	routeHandler(cfg, "/slo/disk")(rec, httptest.NewRequest("GET", "/slo/disk", nil))
+	body := rec.Body.String()
+
+	// null ETA → 無成長跡象；負 ETA → 已越過天花板；正常 → 人話時長＋千分位
+	for _, want := range []string{"無成長跡象", "已越過天花板", "約 2.9 小時後觸頂", "1,788,000,000", "約 175 分鐘後觸頂"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q\n%s", want, body)
+		}
+	}
+	// 主表不再有舊表頭與秒數裸值
+	if strings.Contains(body, "ETA 激進") || strings.Contains(body, "420000 s") {
+		t.Fatalf("old headers/raw seconds must not appear:\n%s", body)
+	}
+}
+
+func ptr(f float64) *float64 { return &f }
