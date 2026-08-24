@@ -1,0 +1,12 @@
+# slo-sentinel 設定範本（cp 至 sentinel.yaml 後編輯）
+poll_interval_sec: 60
+prometheus_url: http://localhost:9090
+alertmanager_url: http://localhost:9093
+telegram_token: ""
+rules_dir: rules.d
+slo_defs_dir: slo_defs
+capacity_defs_dir: capacity_defs
+db_path: sentinel.db
+listen_addr: 127.0.0.1:9099    # 唯讀 JSON API——勿對外公開
+metrics_addr: 127.0.0.1:9102   # Prometheus scrape 目標
+log_format: json
