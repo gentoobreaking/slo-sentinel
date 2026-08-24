@@ -1,7 +1,8 @@
 {
   "network": {
     "allowedDomains": [
-      "api.servers.com"
+      "api.servers.com",
+      "raw.githubusercontent.com"
     ]
   }
 }

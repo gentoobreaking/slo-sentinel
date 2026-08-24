@@ -7,3 +7,4 @@ coverage.out
 .gocache/
 .gocache/
 .gopath/
+.community-upstream/
