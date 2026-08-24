@@ -1,15 +1,223 @@
----
+# 🔍 slo-sentinel
+
+**前瞻預測式的 SRE 值班工具——在事故發生之前告訴你。**
+
+監控系統擅長回答「現在壞了嗎」，但答不了「照目前的速度，什麼時候會壞」。slo-sentinel
+輪詢 Prometheus，對任何有天花板的消耗型指標做多視野趨勢外插，提前以 Telegram
+人話卡警告維護者：預算快燒穿、磁碟幾小時後滿、配額即將觸頂。
+
+## Overview
+
+傳統閾值告警是反應式的：等指數越線才響，此時通常已在影響使用者。slo-sentinel
+補上**前瞻層**：
+
+| 感測家族 | 問題 | 範例輸出 |
+|---|---|---|
+| SLO 預算燃盡 | error budget 還能撐多久？ | 「若持續爆量約 X 小時後燒穿；若回常態尚餘 Y 天」 |
+| 容量觸頂 | 磁碟/連線/quota 幾小時後滿？ | 同上（雙視野並陳） |
+| 成本推估 | 本月帳單會到多少？ | 月底推估＋預算燒穿 ETA＋爆衝偵測 |
+| 瘦身閒置 | 哪些 ELB/K8s 資源是殭屍？ | 候選清單＋累積浪費金額 |
+
+核心演算法：**Theil–Sen 穩健斜率**（抗脈衝）＋**激進/穩健雙視野 ETA**（拒絕被
+一次性尖峰誤導的單窗線性外插）。詳細公式見任務書附錄 `algs/capacity-eta.md`。
+
+設計立場：**通知一律直推人類，不自動執行任何修復動作**；AlertManager 的靜態
+告警若已 firing，sentinel 自動靜默避免雙重轟炸（F2b 協調機制）。
+
+## Features
+
+- **多視野 ETA 引擎**：Theil–Sen 斜率＋激進/穩健雙視野並陳；採樣有效性校驗
+  （最少樣本數、缺口剔除、天花板跳變清快取）；解除遲滯（連續 2 輪詢才降級）
+- **四個感測家族**：
+  - SLO 預算燃盡（相容 Sloth 生成的 recording rules）
+  - 容量觸頂（`capacity_defs/*.yaml` 宣告式定義，天花板可為動態查詢）
+  - 成本推估（AWS Cost Explorer / AlibabaCloud BSS adapter，月底推估＋爆衝偵測）
+  - 瘦身閒置（ELB 零流量、K8s/OpenShift 過度請求容器與孤兒 PVC、Standalone 殭屍主機）
+- **感測目錄**：以標準 Prometheus rules 格式為基底，支援熱載入、上游同步
+  （awesome-prometheus-alerts）、失敗整檔隔離
+- **直推通知**：Telegram 人話卡（雙視野並陳）、狀態流轉去重、每日摘要、
+  AlertManager 協調靜默
+- **唯讀 Web UI**：總表／感測詳情（預測 vs 實際）／命中統計／成本／瘦身影候選
+- **CLI**：`sentinel status` 現況表
+
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph sources["資料源"]
+        P[Prometheus]
+        B[雲端帳務 API<br/>AWS CE / 阿里雲 BSS]
+    end
+    subgraph sentinel["bin/sentinel daemon"]
+        Q[query.Source] --> ENG[budget/cost/waste 引擎<br/>Theil–Sen + 狀態機]
+        C[catalog.Loader<br/>rules.d 熱載入] --> ENG
+        ENG --> ST[(SQLite)]
+        ENG --> N[alert: 直推 Telegram<br/>dedupe + AM 協調靜默]
+    end
+    P --> Q
+    B --> BILL[billing adapters] --> COST[cost 推估] --> N
+    API[唯讀 JSON API<br/>127.0.0.1:9099] --- ST
+    M[/metrics 僅觀測/] --- ENG
+    U[bin/sentinel-ui<br/>127.0.0.1:9098 唯讀] --> API
+    N --> TG[Telegram 📱]
+```
+
+## Project Structure
+
+```
+cmd/sentinel/       daemon 進入點＋status 子命令＋主迴圈＋唯讀 API/metrics
+cmd/sentinel-ui/    唯讀網頁（五張頁面，GET-only）
+config/             全域設定載入
+internal/
+├── spec/           SLO 定義解析（OpenSLO 子集）
+├── query/          Prometheus Source 介面＋HTTP 實作＋Fake
+├── catalog/        rules.d 感測目錄（promtool 驗證/fsnotify 熱載入/分類路由）
+├── budget/         ★ 多視野 ETA 引擎（Theil–Sen/有效性校驗/狀態機）
+├── capacity/       容量感測引擎（capacity_defs 解析＋Sensor.Poll）
+├── billing/        帳務 adapter（AWS CE SigV4 / 阿里雲 BSS HMAC）
+├── cost/           成本推估與報表
+├── waste/          瘦身掃描器＋tracker（cloud/k8s/standalone providers）
+├── alert/          Telegram 直推/dedupe/AM 協調/每日摘要
+└── store/          SQLite 狀態與預測紀錄（WAL）
+docs/               部署文件＋freeze-policy 範本
+algs/               （任務書側）演算法規格
+scripts/            sync-community.sh（上游規則同步）
+```
+
+## Requirements
+
+- Runtime: Go 1.26+（建置）；執行期為靜態 binary，無 CGO 依賴
+- Prometheus（指標源；waste 家族依賴 node_exporter / kube-state-metrics / 雲供應商指標）
+- AlertManager（選配：F2b 協調靜默查詢用）
+- promtool（選配：rules.d 語法驗證）
+
+## Installation
+
+```bash
+git clone https://github.com/gentoobreaking/slo-sentinel.git
+cd slo-sentinel
+make build   # 產出 bin/sentinel bin/sentinel-ui
+```
+
+## Configuration
+
+`sentinel -config sentinel.yaml`（留空使用全預設值）。範本見
+[`docs/sentinel.yaml.example`](docs/sentinel.yaml.example)：
+
+| 鍵 | 預設 | 說明 |
+|---|---|---|
+| `poll_interval_sec` | `60` | 主輪詢間隔 |
+| `prometheus_url` | `http://localhost:9090` | 指標源 |
+| `alertmanager_url` | `http://localhost:9093` | F2b 靜默協調查詢 |
+| `telegram_token` | — | 未設定時通知降級為 log-only |
+| `rules_dir` | `rules.d` | 感測目錄（熱載入） |
+| `capacity_defs_dir` | `capacity_defs` | 容量感測定義 |
+| `db_path` | `sentinel.db` | SQLite（WAL） |
+| `listen_addr` | `127.0.0.1:9099` | 唯讀 JSON API——勿對外公開 |
+| `metrics_addr` | `127.0.0.1:9102` | Prometheus scrape 目標 |
+| `log_format` | `json` | json / text |
+
+環境變數：
+
+| 變數 | 用途 |
+|---|---|
+| `TELEGRAM_CHAT_ID` | 推播目標聊天室 |
+| `REDIS_STREAM_MAXLEN` | （worker 相關）串流長度上限 |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION` | 設定後啟用 AWS 成本感測 |
+| `ALICLOUD_ACCESS_KEY_ID` / `ALICLOUD_ACCESS_KEY_SECRET` | 設定後啟用阿里雲成本感測 |
+
+凍結政策（成本約束行為）由 [`docs/freeze-policy.example.yaml`](docs/freeze-policy.example.yaml)
+定義——修改須走 git 審查，「團隊明文同意」即該檔變更被 approve 的事實。
+
+## Quick Start
+
+```bash
+# 1. 定義一個容量感測
+cat > capacity_defs/disk.yaml <<'EOF'
+sensors:
+  - id: data-disk
+    metric:
+      value:   'node_filesystem_avail_bytes{mountpoint="/data"}'
+      ceiling: 'node_filesystem_size_bytes{mountpoint="/data"}'
+EOF
+
+# 2. 匯出一組感測目錄規則（可先空目錄起步）
+mkdir -p rules.d && touch rules.d/.keep
+
+# 3. 啟動（Telegram token 未設定時通知走 stdout log，方便先驗證管線）
+./bin/sentinel -config sentinel.yaml
+
+# 4. 另開終端看總表
+./bin/sentinel-ui -config ui.json &     # ui.json: {"sentinel_api":"http://127.0.0.1:9099"}
+open http://127.0.0.1:9098
+```
+
+## Usage
+
+```bash
+./bin/sentinel                    # daemon 模式（預設）
+./bin/sentinel status             # 列出所有感測現況表
+./bin/sentinel status -db other.db
+./bin/sentinel-ui                 # 唯讀網頁（GET-only）
+```
+
+Web 頁面：`/` 總表｜`/slo/{id}` 詳情與預測歷史｜`/accuracy` 命中統計｜
+`/cost` 成本推估｜`/waste` 瘦身影候選。全部唯讀（僅 GET），預設綁
+127.0.0.1——對外暴露請置於反向代理認證之後。
+
+## Testing
+
+```bash
+go test ./...      # 68 個測試函式、12 套件全離線可跑
+make vet           # go vet
+make build         # 產出 bin/ 並於 CI 驗證 ≤20MB
+```
+
+## Deployment
+
+`docs/deploy.md` 有完整 systemd unit、rules.d 佈建流程（含 Sloth 整合與
+awesome-prometheus-alerts 上游同步腳本 `scripts/sync-community.sh`）、以及
+Prometheus scrape job 設定說明。CI（`.github/workflows/ci.yml`）涵蓋
+vet/test/binary 大小檢查（≤20MB）。
+
+## Security
+
+- 所有監聽預設綁 `127.0.0.1`；UI 僅 GET、無寫入端點
+- Telegram token／雲端帳務金鑰皆自環境變數讀取，不入版控
+- SQLite 檔案不對外暴露；UI 一律走 sentinel 唯讀 JSON API
+- 凍結政策的變更走 git 審查（`docs/freeze-policy.example.yaml`）
+
+不宣稱符合任何安全標準——上述為實際存在的機制。
+
+## Limitations
+
+- **通知排程未自動化**：每日摘要與每週成本報表的格式已實作，但 daemon 迴圈
+  尚未加入定時觸發（待辦）
+- **status 子命令欄位**：尚未包含規格 §3.3 的預算剩餘% 與 burn rate 欄
+- **成本 adapter**：僅 unblended cost；RI/Savings Plans 攤銷、分層定價、
+  即時匯率未支援；對真實雲端 API 的整合僅經 fake server 測試
+  `[NEEDS VERIFICATION]`
+- **waste 浪費金額**：候選清單的金額計算需 billing 單價對接，目前為 0
+- **K8s 感測**：透過 kube-state-metrics/cAdvisor 指標驅動，非 client-go
+- Windows 不支援（fsnotify/inotify 用法）
+
+## Troubleshooting
+
+| 症狀 | 原因與處理 |
+|---|---|
+| 啟動即印 `telegram_token 未設定：通知降級為 log-only` | 正常降級；填入 token 後重啟即恢復推播 |
+| `promtool_not_found_rules_unvalidated` | 安裝 prometheus（含 promtool）以啟用規則驗證 |
+| `rule_file_quarantined` | 該 rules 檔語法錯誤已被隔離；修正後存檔會自動重新載入 |
+| UI 出現 `sentinel API 無法連線` | 確認 daemon 在跑且 listen_addr 與 ui config 的 sentinel_api 一致 |
+| 預測一直不出現 | 採樣有效性校驗未過（§A.5）：冷啟動需累積至少 83% 樣本；天花板剛跳變也會重新累積 |
+
+## Documentation
+
+- [`docs/deploy.md`](docs/deploy.md) — 部署指南
+- [`docs/sentinel.yaml.example`](docs/sentinel.yaml.example) — 設定範本
+- [`docs/freeze-policy.example.yaml`](docs/freeze-policy.example.yaml) — 凍結政策範本
+- 演算法細節（Theil–Sen/雙視野/成本公式）見任務書側 `~/tasks/slo-sentinel/algs/`
+
 ## License
 
-本專案採用 **Apache License 2.0** 授權。
-
-- 完整授權條款見 [`LICENSE`](LICENSE)（專案根目錄）
-- Apache-2.0 官方條款：<https://www.apache.org/licenses/LICENSE-2.0>
-- 版權與貢獻者資訊以 LICENSE 檔案為準
-
-> 本專案為研究/模擬用途，授權條款不構成任何投資建議或保證；
-> 使用/修改/再散佈前請詳閱 LICENSE 全文。
-
-本專案僅供個人量化研究與教育用途。資料來源（FinMind、TWSE、TPEX）之使用請遵守各平台之服務條款。
-
-Proprietary - All rights reserved.
+本專案採用 **Apache License 2.0** 授權，完整條款見 [`LICENSE`](LICENSE)。
