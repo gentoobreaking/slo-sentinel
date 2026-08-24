@@ -1,0 +1,41 @@
+# slo-sentinel CI（T018 收尾：接入後量測測試時間）
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  quality:
+    name: Build & Vet & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test（離線，計時供 §5「CI <10 分鐘」量測）
+        run: |
+          start=$(date +%s)
+          go test ./... -v
+          end=$(date +%s)
+          echo "test_duration_sec=$((end-start))" >> "$GITHUB_OUTPUT"
+
+      - name: Build + binary 大小檢查（≤20MB，spec.md §5 標準 3）
+        run: |
+          go build -o bin/sentinel ./cmd/sentinel
+          go build -o bin/sentinel-ui ./cmd/sentinel-ui
+          for b in bin/sentinel bin/sentinel-ui; do
+            size=$(stat -c%s "$b")
+            echo "$b = $((size/1024/1024))MB"
+            if [ "$size" -gt $((20*1024*1024)) ]; then
+              echo "❌ $b 超過 20MB"; exit 1
+            fi
+          done
