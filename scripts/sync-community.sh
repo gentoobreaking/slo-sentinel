@@ -61,6 +61,16 @@ while IFS= read -r svc; do
     echo "✅ ${svc}：$found 個檔案"
 done < "$SELECTED"
 
+# ---- 自動分類：為挑入的規則補 sentinel_kind（使用者免判斷）----
+if command -v go >/dev/null 2>&1; then
+    # 預設建置快取不可寫時（macOS TCC）退回專案內目錄
+    export GOCACHE="${GOCACHE:-$ROOT/.gocache}"
+    mkdir -p "$GOCACHE"
+    (cd "$ROOT" && go run ./cmd/ruleclassify -dir "$DEST")
+else
+    echo "⚠️  未安裝 Go——跳過自動分類（規則以 KindNone 載入，不影響其他感測）" >&2
+fi
+
 echo "$COMMIT" > "$UPSTREAM"
 echo "✅ 同步完成：共 $copied 個檔案｜上游 commit：${COMMIT:0:12}"
 echo "⚠️  請審查 git diff 後再提交變更"
