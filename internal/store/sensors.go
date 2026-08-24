@@ -8,12 +8,12 @@ import (
 
 // SensorState 為單一感測的最新狀態快照。
 type SensorState struct {
-	SensorID        string
-	State           string    // healthy / warning / critical / …
-	LastValue       float64   // 原始消耗量 m(t₀)（單位依感測而定，如 bytes）
-	LastUtilization float64   // 利用率 U = Value/Ceiling（0–1）；v3 遷移新增
-	LastNotifyAt    time.Time // 零值表示從未通知
-	UpdatedAt       time.Time
+	SensorID        string    `json:"sensor_id"`
+	State           string    `json:"state"`          // healthy / warning / critical / …
+	LastValue       float64   `json:"last_value"`      // 原始消耗量 m(t₀)（單位依感測而定，如 bytes）
+	LastUtilization float64   `json:"last_utilization"` // 利用率 U = Value/Ceiling（0–1）；v3 遷移新增
+	LastNotifyAt    time.Time `json:"last_notify_at"`  // 零值表示從未通知
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // SetState 寫入（upsert）感測狀態。
@@ -64,13 +64,13 @@ func (s *Store) GetState(sensorID string) (*SensorState, error) {
 
 // Prediction 為一次 ETA/預算預測紀錄（供 /accuracy 自評）。
 type Prediction struct {
-	ID              int64
-	SensorID        string
-	PredictedAt     time.Time
-	EtaAggressive   *float64 // 秒；nil 表示該視野無風險或無法預測
-	EtaConservative *float64
-	ActualValue     float64 // 預測當下的指標實際值
-	CatalogVersion  string  // 感測目錄版本，供調整前後命中率對比
+	ID              int64     `json:"id"`
+	SensorID        string    `json:"sensor_id"`
+	PredictedAt     time.Time `json:"predicted_at"`
+	EtaAggressive   *float64  `json:"eta_aggressive"`   // 秒；nil 表示該視野無風險或無法預測
+	EtaConservative *float64  `json:"eta_conservative"`
+	ActualValue     float64   `json:"actual_value"` // 預測當下的指標實際值
+	CatalogVersion  string    `json:"catalog_version"` // 感測目錄版本，供調整前後命中率對比
 }
 
 // AppendPrediction 記錄一次預測。

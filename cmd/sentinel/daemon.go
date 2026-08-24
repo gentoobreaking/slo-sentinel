@@ -325,13 +325,14 @@ func (d *daemon) runOnePoll(ctx context.Context) error {
 				d.log.Error("sensor_poll_failed", "sensor", sr.id, "error", err.Error())
 				return
 			}
-			// 記錄預測（/accuracy 自評資料源）
+			// 記錄預測（/accuracy 自評資料源）；目錄版本供調整前後命中率對比
 			if err := d.st.AppendPrediction(store.Prediction{
 				SensorID:        f.ID,
 				PredictedAt:     f.Now,
 				EtaAggressive:   f.EtaAggressive,
 				EtaConservative: f.EtaConservative,
 				ActualValue:     f.Value,
+				CatalogVersion:  d.catalogVersion(),
 			}); err != nil {
 				d.log.Error("append_prediction_failed", "sensor", f.ID, "error", err.Error())
 			}
@@ -524,6 +525,15 @@ func (d *daemon) persistWasteEntries() {
 			d.log.Error("waste_entry_persist_failed", "resource", e.ResourceID, "error", err.Error())
 		}
 	}
+}
+
+// catalogVersion 回傳目前感測目錄版本（rules.d/community/UPSTREAM_COMMIT；
+// 未設定或目錄未載入時為空字串）。
+func (d *daemon) catalogVersion() string {
+	if d.lastCatalog != nil {
+		return d.lastCatalog.Version
+	}
+	return ""
 }
 
 // estimateLines 依映射範本＋感測最新值組出用量列（§D.0：用量取自 capacity/waste 感測）。
