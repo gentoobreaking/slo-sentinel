@@ -1,0 +1,7 @@
+{
+  "network": {
+    "allowedDomains": [
+      "api.servers.com"
+    ]
+  }
+}

@@ -1,0 +1,20 @@
+# 本機測試感測——對應 cmd/mock-exporter 的假 servers.com 資料
+#
+# 數值調校（演示節奏）：
+#   mock-exporter 預設起始 42TB、速率 500GB/h、配額 50TB
+#   → 剩餘 8TB ÷ 0.5TB/h ≈ 16h 觸頂 → crit_eta 24h 立即成立，
+#     啟動後第一輪輪詢就會看到 critical 推播（Telegram 未設定的話走 log）
+#
+# 正式環境：改用 serverscom-quota.yaml（真 host_id＋真配額），此檔移除即可。
+
+sensors:
+  - id: serverscom-egress-quota
+    desc: "servers.com 月流量配額（本機 mock 測試）"
+    metric:
+      value:   'serverscom_host_monthly_sent_bytes_total{traffic_type="public",host_id="mock1"}'
+      ceiling: 'serverscom_host_monthly_sent_bytes_total{traffic_type="public",host_id="mock1"} * 0 + 50e12'
+    horizons: [6h, 7d]
+    thresholds:
+      warn_eta: 72h
+      crit_eta: 24h
+      soft_ratio: 0.80
