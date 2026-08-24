@@ -131,7 +131,7 @@ SQLite 走純 Go 的 modernc.org/sqlite）→ `alpine:latest` 執行層；
 |---|---|---|
 | `/etc/sentinel/sentinel.yaml` | `deploy/docker/sentinel.yaml` | ro |
 | `/etc/sentinel/sentinel-ui.json`（UI 容器） | `deploy/docker/sentinel-ui.json` | ro |
-| `/srv/sentinel/rules.d`、`/srv/sentinel/slo_defs`、`/srv/sentinel/capacity_defs` | repo 對應目錄 | ro（rules.d 支援熱載入） |
+| `/srv/sentinel/rules.d`、`/srv/sentinel/slo_defs`、`/srv/sentinel/capacity_defs` | repo 對應目錄 | ro（皆支援熱載入） |
 | `/var/lib/sentinel` | named volume `sentinel-data` | rw（SQLite WAL＋pricing 快取） |
 
 **環境變數**（見 `docker-compose.yml`）：`TELEGRAM_CHAT_ID`、
@@ -258,7 +258,8 @@ SENTINEL_URL=http://127.0.0.1:9099 SLO_ID=dev-root-disk \
 ```
 
 收尾：`docker compose --profile dev down`（資料卷保留）。
-注意 capacity_defs **非熱載入**——改定義檔後需 `docker restart slo-sentinel`。
+三個定義目錄（rules.d／slo_defs／capacity_defs）皆支援熱載入——改檔後下一輪輪詢
+自動生效，免重啟；副作用：重建感測器會重置引擎內部狀態（解除遲滯計數、前次天花板）。
 
 > 此環境同時是 T019/T021 前置條件「daemon 實際運行 ≥30 天累積 burn rate」
 > 的運行載體：掛上 Telegram token 後放著跑即可開始累積數據。

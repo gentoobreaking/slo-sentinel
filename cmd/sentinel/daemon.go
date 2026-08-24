@@ -30,6 +30,7 @@ import (
 	"slo-sentinel/internal/query"
 	"slo-sentinel/internal/store"
 	"slo-sentinel/internal/waste"
+	"slo-sentinel/internal/watch"
 )
 
 type specSLO struct {
@@ -205,7 +206,9 @@ func (d *daemon) markNotifyResult(sensorID string, err error) {
 }
 
 func (d *daemon) setupSensors(ctx context.Context) error {
-	d.sensors = nil // 可重入：熱載入時重建
+	// 可重入：熱載入時重建。先建在區域變數，全部成功才覆寫 d.sensors——
+	// 新檔解析失敗時保留舊感測（T028：與 rules.d 失敗處理一致）。
+	sensors := make([]sensorRunner, 0, len(d.sensors))
 	// 容量感測（F8/F9）
 	defs, err := capacity.LoadDefs(d.cfg.CapacityDefsDir)
 	if err != nil {
@@ -217,7 +220,7 @@ func (d *daemon) setupSensors(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		d.sensors = append(d.sensors, sensorRunner{
+		sensors = append(sensors, sensorRunner{
 			id:     def.ID,
 			kind:   "capacity",
 			filter: def.ID,
@@ -236,7 +239,7 @@ func (d *daemon) setupSensors(ctx context.Context) error {
 	for _, slo := range slos {
 		slo := slo
 		budgetRatio := (100 - slo.Objective) / 100
-		d.sensors = append(d.sensors, sensorRunner{
+		sensors = append(sensors, sensorRunner{
 			id:     slo.ID,
 			kind:   "budget",
 			filter: slo.Service,
@@ -285,6 +288,8 @@ func (d *daemon) setupSensors(ctx context.Context) error {
 			},
 		})
 	}
+	d.sensors = sensors // 全部成功才切換
+	d.capDefs = defs    // 每週摘要的擴容軌跡比對用（§D.5）
 	d.log.Info("sensors_configured", "count", len(d.sensors))
 	return nil
 }
@@ -389,6 +394,24 @@ func (d *daemon) Run(ctx context.Context) error {
 		d.log.Warn("rules_watch_failed", "error", werr.Error())
 	} else {
 		defer stopWatch()
+	}
+
+	// slo_defs／capacity_defs 熱載入（T028）：與 rules.d 行為一致——
+	// 變更後重建感測器（下一輪以新定義生效）；解析失敗保留舊感測。
+	// 副作用：重建會重置引擎內部狀態（如解除遲滯計數、前次天花板）。
+	for _, dir := range []string{d.cfg.CapacityDefsDir, d.cfg.SloDefsDir} {
+		wdir := dir
+		stopDefWatch, werr := watch.Dir(ctx, wdir, func() {
+			d.log.Info("defs_hot_reloading", "dir", wdir)
+			if err := d.setupSensors(ctx); err != nil {
+				d.log.Error("sensors_rebuild_failed", "dir", wdir, "error", err.Error())
+			}
+		})
+		if werr != nil {
+			d.log.Warn("defs_watch_failed", "dir", wdir, "error", werr.Error())
+			continue
+		}
+		defer stopDefWatch()
 	}
 	api := &readAPI{d: d}
 	apiErr := make(chan error, 1)
