@@ -65,6 +65,7 @@ type readAPI struct {
 func (a *readAPI) serve(addr string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/status.json", a.statusJSON)
+	mux.HandleFunc("/api/accuracy", a.accuracyJSON)
 	srv := &http.Server{Addr: addr, Handler: mux}
 	return srv.ListenAndServe()
 }
@@ -80,6 +81,28 @@ func (a *readAPI) statusJSON(w http.ResponseWriter, r *http.Request) {
 	})
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"states": states})
+}
+
+// accuracyJSON 彙整各感測的預測紀錄筆數與最近 ETA（/accuracy 頁面資料源）。
+func (a *readAPI) accuracyJSON(w http.ResponseWriter, r *http.Request) {
+	since := time.Now().UTC().Add(-7 * 24 * time.Hour)
+	out := []map[string]any{}
+	for _, sr := range a.d.sensors {
+		preds, err := a.d.st.ListPredictions(sr.id, since)
+		if err != nil {
+			continue
+		}
+		var lastEta *float64
+		if len(preds) > 0 {
+			lastEta = preds[len(preds)-1].EtaAggressive
+		}
+		out = append(out, map[string]any{
+			"sensor_id": sr.id, "predictions": len(preds),
+			"last_eta_aggressive_sec": lastEta,
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"since": since.Format(time.RFC3339), "sensors": out})
 }
 
 // storeSensorStateJSON 為對外的 JSON 形狀（與 store 內部結構解耦）。

@@ -21,6 +21,7 @@ import (
 	"slo-sentinel/internal/alert"
 	"slo-sentinel/internal/budget"
 	"slo-sentinel/internal/capacity"
+	"slo-sentinel/internal/catalog"
 	"slo-sentinel/internal/promdur"
 	"slo-sentinel/internal/query"
 	"slo-sentinel/internal/store"
@@ -82,6 +83,7 @@ func newDaemon(cfg config.Config, log *slog.Logger, src query.Source, st *store.
 }
 
 func (d *daemon) setupSensors(ctx context.Context) error {
+	d.sensors = nil // 可重入：熱載入時重建
 	// 容量感測（F8/F9）
 	defs, err := capacity.LoadDefs(d.cfg.CapacityDefsDir)
 	if err != nil {
@@ -220,10 +222,26 @@ func (d *daemon) runOnePoll(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// Run 主迴圈：setup → 啟動 API/metrics → 每隔 interval 執行 runOnePoll → 收尾。
+// Run 主迴圈：setup → 啟動 API/metrics/rules.d 熱載入 → 每隔 interval 執行 runOnePoll → 收尾。
 func (d *daemon) Run(ctx context.Context) error {
 	if err := d.setupSensors(ctx); err != nil {
 		return err
+	}
+
+	// rules.d 熱載入：變更後下一輪詢以新目錄生效（重建感測器）
+	catalogLoader := &catalog.Loader{Dir: d.cfg.RulesDir}
+	if _, _, loadErr := catalogLoader.Load(d.cfg.RulesDir); loadErr != nil {
+		d.log.Warn("rules_dir_load_failed", "error", loadErr.Error())
+	} else if stopWatch, werr := catalogLoader.Watch(ctx, d.cfg.RulesDir,
+		func(*catalog.Catalog) {
+			d.log.Info("rules_hot_reloaded")
+			if err := d.setupSensors(ctx); err != nil {
+				d.log.Error("sensors_rebuild_failed", "error", err.Error())
+			}
+		}); werr != nil {
+		d.log.Warn("rules_watch_failed", "error", werr.Error())
+	} else {
+		defer stopWatch()
 	}
 	api := &readAPI{d: d}
 	apiErr := make(chan error, 1)
