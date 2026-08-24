@@ -31,7 +31,7 @@ func openTestStore(t *testing.T) *store.Store {
 func seedBudgetState(t *testing.T, st *store.Store, id, state string, utilization float64) {
 	t.Helper()
 	if err := st.SetState(store.SensorState{
-		SensorID: id, State: state, LastValue: utilization,
+		SensorID: id, State: state, LastValue: utilization, LastUtilization: utilization,
 		LastNotifyAt: time.Now(), UpdatedAt: time.Now(),
 	}); err != nil {
 		t.Fatal(err)

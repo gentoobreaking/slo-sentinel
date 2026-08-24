@@ -249,10 +249,11 @@ func (d *daemon) runOnePoll(ctx context.Context) error {
 				lastNotify = prev.LastNotifyAt
 			}
 			if err := d.st.SetState(store.SensorState{
-				SensorID:     f.ID,
-				State:        string(f.State),
-				LastValue:    f.Value,
-				LastNotifyAt: lastNotify,
+				SensorID:        f.ID,
+				State:           string(f.State),
+				LastValue:       f.Value,
+				LastUtilization: f.Utilization,
+				LastNotifyAt:    lastNotify,
 			}); err != nil {
 				d.log.Error("set_state_failed", "error", err.Error())
 			}

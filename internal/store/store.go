@@ -62,6 +62,9 @@ var migrations = []string{
 		created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_predictions_sensor ON predictions(sensor_id, predicted_at)`,
+	// v3：容量感測的利用率（0–1）與原始消耗量分開存——budget-status 端點
+	// 需要利用率算 remaining_budget%，而 last_value 是絕對量（如 bytes）
+	`ALTER TABLE sensor_state ADD COLUMN last_utilization REAL`,
 }
 
 func (s *Store) migrate() error {

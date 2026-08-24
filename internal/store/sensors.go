@@ -8,11 +8,12 @@ import (
 
 // SensorState 為單一感測的最新狀態快照。
 type SensorState struct {
-	SensorID     string
-	State        string // healthy / warning / critical / …
-	LastValue    float64
-	LastNotifyAt time.Time // 零值表示從未通知
-	UpdatedAt    time.Time
+	SensorID        string
+	State           string    // healthy / warning / critical / …
+	LastValue       float64   // 原始消耗量 m(t₀)（單位依感測而定，如 bytes）
+	LastUtilization float64   // 利用率 U = Value/Ceiling（0–1）；v3 遷移新增
+	LastNotifyAt    time.Time // 零值表示從未通知
+	UpdatedAt       time.Time
 }
 
 // SetState 寫入（upsert）感測狀態。
@@ -27,24 +28,25 @@ func (s *Store) SetState(st SensorState) error {
 	if !st.LastNotifyAt.IsZero() {
 		lastNotify = st.LastNotifyAt.UTC().Format(time.RFC3339Nano)
 	}
-	_, err := s.db.Exec(`INSERT INTO sensor_state(sensor_id, state, last_value, last_notify_at, updated_at)
-		VALUES(?,?,?,?,?)
+	_, err := s.db.Exec(`INSERT INTO sensor_state(sensor_id, state, last_value, last_utilization, last_notify_at, updated_at)
+		VALUES(?,?,?,?,?,?)
 		ON CONFLICT(sensor_id) DO UPDATE SET
 		  state=excluded.state, last_value=excluded.last_value,
+		  last_utilization=excluded.last_utilization,
 		  last_notify_at=excluded.last_notify_at, updated_at=excluded.updated_at`,
-		st.SensorID, st.State, st.LastValue, lastNotify,
+		st.SensorID, st.State, st.LastValue, st.LastUtilization, lastNotify,
 		st.UpdatedAt.UTC().Format(time.RFC3339Nano))
 	return err
 }
 
 // GetState 回傳感測狀態；不存在時回傳 (nil, nil)。
 func (s *Store) GetState(sensorID string) (*SensorState, error) {
-	row := s.db.QueryRow(`SELECT state, COALESCE(last_value,0), last_notify_at, updated_at
+	row := s.db.QueryRow(`SELECT state, COALESCE(last_value,0), COALESCE(last_utilization,0), last_notify_at, updated_at
 		FROM sensor_state WHERE sensor_id = ?`, sensorID)
 	var st SensorState
 	var lastNotify, updatedAt sql.NullString
 	st.SensorID = sensorID
-	err := row.Scan(&st.State, &st.LastValue, &lastNotify, &updatedAt)
+	err := row.Scan(&st.State, &st.LastValue, &st.LastUtilization, &lastNotify, &updatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

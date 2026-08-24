@@ -1,0 +1,21 @@
+# 主機磁碟用量感測（node_exporter）——docker-compose dev profile 測試用
+#
+# 資料鏈：node-exporter（compose dev profile）→ Prometheus → 本感測
+# 真實主機資料：used/size 是教科書級的「消耗量 vs 天花板」。
+#
+# ⚠️ 僅在啟用 dev profile（compose 內建 Prometheus＋node_exporter）時有意義；
+#    正式環境若 Prometheus 沒有 node_exporter 資料，此感測輪詢會記錯誤日誌
+#    （不影響其他感測），不需要時移除本檔即可。
+
+sensors:
+  - id: dev-root-disk
+    desc: "主機磁碟用量（dev profile，node_exporter）"
+    metric:
+      # node_exporter 沒有 used_bytes——used = size − free（同 label 對齊相減）
+      # 再 max() 取單一序列；fstype 過濾跨環境通用（容器 VM 常無 mountpoint="/"）
+      value:   'max(node_filesystem_size_bytes{fstype=~"ext4|xfs"} - node_filesystem_free_bytes{fstype=~"ext4|xfs"})'
+      ceiling: 'max(node_filesystem_size_bytes{fstype=~"ext4|xfs"})'
+    horizons: [6h, 7d]
+    thresholds:
+      warn_eta: 72h
+      crit_eta: 24h

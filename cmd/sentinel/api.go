@@ -168,8 +168,8 @@ func (a *readAPI) budgetStatusJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// remaining_budget%：LastValue 為消耗比（utilization），餘量 = 1 − utilization
-	remain := (1 - st.LastValue) * 100
+	// remaining_budget%：last_utilization 為利用率（0–1），餘量 = 1 − U
+	remain := (1 - st.LastUtilization) * 100
 	remain = math.Round(remain*100) / 100 // 浮點尾巴清理，報表顯示用
 	if remain < 0 {
 		remain = 0
