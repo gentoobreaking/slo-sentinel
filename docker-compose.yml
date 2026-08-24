@@ -23,6 +23,11 @@ services:
       - "127.0.0.1:9102:9102"   # Prometheus scrape 目標
     environment:
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      # 分診轉交（T020，選配）：設定 ONCALL_GATE_URL 即啟用容量預警轉交 ai-oncall
+      ONCALL_GATE_URL: ${ONCALL_GATE_URL:-}
+      ONCALL_GATE_TOKEN: ${ONCALL_GATE_TOKEN:-}
+      SENTINEL_CLUSTER_NAME: ${SENTINEL_CLUSTER_NAME:-}
+      SENTINEL_RUNBOOK_URL: ${SENTINEL_RUNBOOK_URL:-}
       # 成本感測（actual 模式，選配）：設定即啟用
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
