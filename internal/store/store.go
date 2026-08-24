@@ -2,6 +2,7 @@
 //
 // T004：schema 以 migrations 版本機制管理；所有寫入經單一 writer 連線序列化，
 // 讀取可併發。UI（T016）不直接開啟此檔——一律走 sentinel 唯讀 API（spec.md §2.5）。
+// 驅動：modernc.org/sqlite（純 Go，免 CGO）。
 package store
 
 import (
@@ -9,7 +10,7 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 // Store 封裝 SQLite 連線與遷移。
@@ -20,9 +21,9 @@ type Store struct {
 // Open 開啟（必要時建立）位於 path 的資料庫並執行遷移。
 func Open(path string) (*Store, error) {
 	// busy_timeout：WAL 模式下避免寫入衝突立即報錯；foreign_keys 依契約開啟
-	// mattn/go-sqlite3 DSN 參數：WAL 日誌模式 + busy timeout（毫秒）+ 外鍵開啟
-	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=1", path)
-	db, err := sql.Open("sqlite3", dsn)
+	// modernc.org/sqlite DSN pragma：WAL 日誌模式 + busy timeout（毫秒）+ 外鍵開啟
+	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)", path)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite %s: %w", path, err)
 	}
