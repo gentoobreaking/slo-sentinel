@@ -38,6 +38,7 @@ type specSLO struct {
 	SLIQuery   string
 	Objective  float64
 	WindowDays int
+	Th         budget.Thresholds // 觸發門檻（slo_defs thresholds 覆寫後；T023）
 }
 
 var internalSpecLoad = internalSpec.Load
@@ -268,7 +269,7 @@ func (d *daemon) setupSensors(ctx context.Context) error {
 					Ceiling:  budgetRatio, // 錯誤預算比 = (100−objective)/100
 					Samples:  samples,
 					Interval: step,
-					Th:       budget.DefaultThresholds(),
+					Th:       slo.Th,
 				})
 			},
 		})
@@ -587,8 +588,12 @@ func specLoadAll(dir string) ([]specSLO, error) {
 	}
 	out := make([]specSLO, 0, len(slos))
 	for _, x := range slos {
+		th := budget.DefaultThresholds()
+		if x.Thresholds != nil {
+			th = x.Thresholds.Resolve() // 未覆寫欄位用預設；非法組合已在 Load 擋下
+		}
 		out = append(out, specSLO{ID: x.ID, Service: x.Service,
-			SLIQuery: x.SLIQuery, Objective: x.Objective, WindowDays: x.WindowDays})
+			SLIQuery: x.SLIQuery, Objective: x.Objective, WindowDays: x.WindowDays, Th: th})
 	}
 	return out, nil
 }

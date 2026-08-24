@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"slo-sentinel/internal/budget"
+	"slo-sentinel/internal/promdur"
 	"gopkg.in/yaml.v3"
 )
 
@@ -18,6 +20,40 @@ type SLO struct {
 	Objective   float64 `yaml:"objective"`   // 目標百分比，如 99.9
 	WindowDays  int     `yaml:"window_days"` // 計算視窗天數，預設 28
 	BudgetUSD   float64 `yaml:"budget_usd"`  // （選配）月度預算天花板——供 cost 家族使用
+	Thresholds  *ThresholdsOverlay `yaml:"thresholds"` // （選配）觸發門檻覆寫（T023）；nil → 全預設
+}
+
+// ThresholdsOverlay 允許部分覆寫 SLO 感測門檻（比照 capacity 家族；T023）。
+type ThresholdsOverlay struct {
+	WarnEta   *string  `yaml:"warn_eta"`   // 如 "48h"
+	CritEta   *string  `yaml:"crit_eta"`   // 如 "4h"
+	SoftRatio *float64 `yaml:"soft_ratio"`
+	CritRatio *float64 `yaml:"crit_ratio"`
+}
+
+// Resolve 轉為 budget.Thresholds（未覆寫處用預設值）。
+func (o *ThresholdsOverlay) Resolve() budget.Thresholds {
+	th := budget.DefaultThresholds()
+	if o == nil {
+		return th
+	}
+	if o.WarnEta != nil {
+		if d := promdur.Parse(*o.WarnEta); d > 0 {
+			th.WarnEta = d
+		}
+	}
+	if o.CritEta != nil {
+		if d := promdur.Parse(*o.CritEta); d > 0 {
+			th.CritEta = d
+		}
+	}
+	if o.SoftRatio != nil {
+		th.SoftRatio = *o.SoftRatio
+	}
+	if o.CritRatio != nil {
+		th.CritRatio = *o.CritRatio
+	}
+	return th
 }
 
 func (s SLO) Validate() error {
@@ -32,6 +68,12 @@ func (s SLO) Validate() error {
 	}
 	if s.WindowDays < 0 {
 		return fmt.Errorf("%s: window_days 不可為負，得到 %d", s.ID, s.WindowDays)
+	}
+	// thresholds 非法組合啟動即報錯（T023：soft ≥ crit、warn_eta ≤ crit_eta）
+	if s.Thresholds != nil {
+		if err := s.Thresholds.Resolve().Validate(); err != nil {
+			return fmt.Errorf("%s: thresholds: %w", s.ID, err)
+		}
 	}
 	return nil
 }

@@ -48,6 +48,9 @@ func DefaultThresholds() Thresholds {
 		SoftRatio: DefaultSoftRatio, CritRatio: DefaultCritRatio}
 }
 
+// Validate 檢查門檻組合合理性（供外部組裝處使用；T023）。
+func (t Thresholds) Validate() error { return t.validate() }
+
 // validate 確保門檻組合合理（soft < crit、warn > crit_eta）。
 func (t Thresholds) validate() error {
 	if !(t.SoftRatio < t.CritRatio) {

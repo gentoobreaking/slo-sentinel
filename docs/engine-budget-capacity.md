@@ -149,8 +149,22 @@ InstantQuery(value) + RangeQuery(過往視窗)
 門檻一律**人工調整**（系統不會自己漂移）；校準依據來自
 `/accuracy` 的命中統計與 ≥30 天運行數據（T019/T021 的前置條件）。
 
-> ⚠️ 現狀：capacity 家族四個門檻皆可 per-sensor 覆寫；budget（SLO）家族
-> 目前鎖定預設值不可調——已列任務 T023，實作後本節同步更新。
+capacity 與 budget（SLO）兩家族皆支援 per-sensor 門檻覆寫：capacity 寫在
+`capacity_defs/*.yaml` 的 `thresholds` 區塊；SLO 寫在 `slo_defs/*.yaml` 的
+`thresholds` 區塊（四欄皆可選，未寫用預設；非法組合啟動即報錯）：
+
+```yaml
+slos:
+  - id: api-availability
+    # ...
+    thresholds:
+      warn_eta: 48h      # 可選；以下四者未寫用預設 72h / 6h / 0.80 / 0.95
+      crit_eta: 4h
+      soft_ratio: 0.70
+      crit_ratio: 0.90
+```
+
+> 歷史備註：budget 家族曾鎖定預設值不可調（T023 已實作解除）。
 
 ---
 

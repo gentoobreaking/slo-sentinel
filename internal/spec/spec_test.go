@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"slo-sentinel/internal/budget"
 )
 
 const validYAML = `slos:
@@ -71,5 +74,89 @@ func TestValidationErrors(t *testing.T) {
 				t.Fatalf("err = %v, want contains %q", err, c.errSub)
 			}
 		})
+	}
+}
+
+// ---- T023：slo_defs thresholds 覆寫 ----
+
+func writeSLO(t *testing.T, body string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "slo.yaml"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestLoadThresholdsOverride(t *testing.T) {
+	dir := writeSLO(t, `slos:
+  - id: api-availability
+    sli_query: 'rate(err[5m])'
+    objective: 99.9
+    thresholds:
+      warn_eta: 48h
+      crit_eta: 4h
+      soft_ratio: 0.70
+      crit_ratio: 0.90
+`)
+	slos, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	th := slos[0].Thresholds.Resolve()
+	want := budget.Thresholds{WarnEta: 48 * time.Hour, CritEta: 4 * time.Hour,
+		SoftRatio: 0.70, CritRatio: 0.90}
+	if th != want {
+		t.Fatalf("th = %+v, want %+v", th, want)
+	}
+}
+
+func TestLoadThresholdsAbsentUsesDefaults(t *testing.T) {
+	// 缺省 thresholds 不影響既有檔案（回歸）：解析成功且 Resolve = 全預設
+	slos, err := Load(writeSLO(t, validYAML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slos[0].Thresholds != nil {
+		t.Fatalf("thresholds should be nil when absent")
+	}
+	if got := slos[0].Thresholds.Resolve(); got != budget.DefaultThresholds() {
+		t.Fatalf("resolve = %+v, want defaults", got)
+	}
+}
+
+func TestLoadThresholdsPartialOverride(t *testing.T) {
+	// 只寫部分欄位，其餘維持預設
+	dir := writeSLO(t, `slos:
+  - id: api-availability
+    sli_query: 'rate(err[5m])'
+    objective: 99.9
+    thresholds:
+      crit_eta: 2h
+`)
+	slos, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	th := slos[0].Thresholds.Resolve()
+	def := budget.DefaultThresholds()
+	if th.CritEta != 2*time.Hour || th.WarnEta != def.WarnEta ||
+		th.SoftRatio != def.SoftRatio || th.CritRatio != def.CritRatio {
+		t.Fatalf("partial override = %+v", th)
+	}
+}
+
+func TestLoadInvalidThresholdCombinations(t *testing.T) {
+	cases := map[string]string{
+		"soft ≥ crit":       "soft_ratio: 0.95\n        crit_ratio: 0.90",
+		"warn_eta ≤ crit_eta": "warn_eta: 4h\n        crit_eta: 6h",
+	}
+	for name, body := range cases {
+		yaml := "slos:\n  - id: api-availability\n    sli_query: 'rate(err[5m])'\n    objective: 99.9\n    thresholds:\n        " + body + "\n"
+		if _, err := Load(writeSLO(t, yaml)); err == nil {
+			t.Fatalf("%s must be rejected at load time", name)
+		} else if !strings.Contains(err.Error(), "thresholds") {
+			t.Fatalf("%s error should mention thresholds, got %v", name, err)
+		}
 	}
 }

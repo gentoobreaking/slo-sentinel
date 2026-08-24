@@ -163,6 +163,7 @@ compose 已為各服務覆寫，不會互相誤判。`depends_on: condition: ser
 | `listen_addr` | `127.0.0.1:9099` | 唯讀 JSON API——勿對外公開 |
 | `metrics_addr` | `127.0.0.1:9102` | Prometheus scrape 目標 |
 | `log_format` | `json` | json / text |
+| `waste_scan_interval_sec` | `21600` | waste 掃描週期秒數；`0` 完全停用（T024，亦可用環境變數覆寫） |
 
 環境變數：
 
@@ -172,6 +173,7 @@ compose 已為各服務覆寫，不會互相誤判。`depends_on: condition: ser
 | `REDIS_STREAM_MAXLEN` | （worker 相關）串流長度上限 |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION` | 設定後啟用 AWS 成本感測 |
 | `ALICLOUD_ACCESS_KEY_ID` / `ALICLOUD_ACCESS_KEY_SECRET` | 設定後啟用阿里雲成本感測 |
+| `WASTE_SCAN_INTERVAL_SEC` | 覆寫 waste 掃描週期秒數；`off` / `0` 停用（T024） |
 
 凍結政策（成本約束行為）由 [`docs/freeze-policy.example.yaml`](docs/freeze-policy.example.yaml)
 定義——修改須走 git 審查，「團隊明文同意」即該檔變更被 approve 的事實。
