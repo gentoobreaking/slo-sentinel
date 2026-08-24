@@ -2,7 +2,8 @@
   "network": {
     "allowedDomains": [
       "api.servers.com",
-      "raw.githubusercontent.com"
+      "raw.githubusercontent.com",
+      "host.docker.internal"
     ]
   }
 }
