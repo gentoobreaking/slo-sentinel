@@ -1,0 +1,12 @@
+# 基礎設施存活率 SLO——dev 環境現有資料即可驅動（T034）
+#
+# 與 example.yaml（node-exporter job）互補：這裡監控 Prometheus 自身
+# 的抓取目標。SLI = 錯誤率（值域 [0,1]），objective 99.9 → 錯誤預算 0.1%。
+
+slos:
+  - id: infra-prometheus-self-up
+    service: infra
+    description: "Prometheus 自我抓取存活率 99.9%"
+    sli_query: '1 - avg(up{job="prometheus-self"})'
+    objective: 99.9
+    window_days: 28

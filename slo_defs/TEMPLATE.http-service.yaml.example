@@ -1,0 +1,40 @@
+# ============================================================================
+# 服務級 SLO 範本庫（T034）——複製本檔、去掉 .example、換 service 名即可啟用
+#
+# label 慣例刻意對齊 ai-oncall gate collector：http_requests_total{service=…}
+# ——同一套 label 同時餵分診 context，告警轉分診時無需二次映射。
+#
+# thresholds 四欄皆可選（T023）：warn_eta / crit_eta / soft_ratio / crit_ratio，
+# 未寫用預設 72h / 6h / 0.80 / 0.95。
+# ============================================================================
+
+# 未啟用的範本不會被 sentinel 解析——本檔副檔名 .example 刻意避開載入器。
+# 啟用方式：cp TEMPLATE.http-service.yaml.example my-service.yaml 後編輯。
+
+# slos:
+#   # ---- 1. 可用性 SLO（5xx 錯誤率）----
+#   # SLI = 非 5xx 佔比之外的錯誤比例，值域 [0,1]
+#   - id: my-api-availability
+#     service: my-api
+#     description: "API 可用性 99.9%（28 天滾動視窗）"
+#     sli_query:
+#       'sum(rate(http_requests_total{service="my-api", code=~"5.."}[5m]))
+#        / sum(rate(http_requests_total{service="my-api"}[5m]))'
+#     objective: 99.9
+#     window_days: 28
+#
+#   # ---- 2. 延遲 SLO（p99 > 500ms 的請求視為不良）----
+#   # 需要 histogram 指標：http_request_duration_seconds_bucket
+#   - id: my-api-latency
+#     service: my-api
+#     description: "p99 延遲 < 500ms 達成率 99%"
+#     sli_query:
+#       'sum(rate(http_request_duration_seconds_bucket{service="my-api", le="0.5"}[5m]))
+#        / sum(rate(http_requests_total{service="my-api"}[5m]))'
+#     objective: 99
+#     window_days: 28
+#     thresholds:                      # T023：per-SLO 門檻覆寫（可省）
+#       warn_eta: 48h                  # 提前警告：穩健 ETA < 48h
+#       crit_eta: 4h                   # critical：激進 ETA < 4h
+#       soft_ratio: 0.70               # 提前警告水位 70%
+#       crit_ratio: 0.90               # critical 水位 90%

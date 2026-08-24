@@ -160,3 +160,32 @@ func TestLoadInvalidThresholdCombinations(t *testing.T) {
 		}
 	}
 }
+
+// T034：範本庫檔（.example 副檔名）不可被載入。
+func TestLoadIgnoresExampleTemplates(t *testing.T) {
+	dir := writeSLO(t, validYAML)
+	if err := os.WriteFile(filepath.Join(dir, "TEMPLATE.http-service.yaml.example"),
+		[]byte("slos:\n  - id: should-not-load\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	slos, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range slos {
+		if s.ID == "should-not-load" {
+			t.Fatal(".example file must not be loaded")
+		}
+	}
+	if len(slos) != 1 || slos[0].ID != "api-availability" {
+		t.Fatalf("expected only validYAML slo, got %v", ids(slos))
+	}
+}
+
+func ids(slos []SLO) []string {
+	var out []string
+	for _, s := range slos {
+		out = append(out, s.ID)
+	}
+	return out
+}
