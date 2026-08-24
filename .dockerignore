@@ -1,0 +1,17 @@
+# 容器建置排除——縮小 context、避免機密與本機狀態進映像
+.git
+.gocache/
+bin/
+*.db
+*.db-wal
+*.db-shm
+.env
+sentinel.yaml
+docs/
+algs/
+scripts/
+rules.d/
+slo_defs/
+capacity_defs/
+*.md
+!README.md

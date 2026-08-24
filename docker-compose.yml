@@ -1,0 +1,70 @@
+# slo-sentinel 容器化部署（docker compose up -d）
+#
+# 兩個服務共用同一映像（多階段建置，alpine base）：
+#   sentinel     daemon：輪詢 Prometheus → ETA 引擎 → Telegram 直推＋唯讀 API/metrics
+#   sentinel-ui  唯讀網頁（GET-only），反向代理 sentinel 的 JSON API
+#
+# 前置：
+#   1. cp deploy/docker/sentinel.yaml.example 已內建；要自訂就改 deploy/docker/sentinel.yaml
+#   2. 規則/定義目錄以唯讀掛載進容器（本機路徑不存在時請先建立）
+#   3. 敏感資訊走環境變數（.env 或 secrets），勿寫進映像
+
+services:
+  sentinel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: slo-sentinel:latest
+    container_name: slo-sentinel
+    restart: unless-stopped
+    # command 沿用映像 CMD（含完整 binary 路徑——entrypoint 的 su-exec 需要）
+    ports:
+      - "127.0.0.1:9099:9099"   # 唯讀 JSON API——僅綁本機，對外請經反向代理
+      - "127.0.0.1:9102:9102"   # Prometheus scrape 目標
+    environment:
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      # 成本感測（actual 模式，選配）：設定即啟用
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      ALICLOUD_ACCESS_KEY_ID: ${ALICLOUD_ACCESS_KEY_ID:-}
+      ALICLOUD_ACCESS_KEY_SECRET: ${ALICLOUD_ACCESS_KEY_SECRET:-}
+      # estimate 模式（選配）：掛 cost_map.yaml 即啟用，無需 billing IAM
+      SENTINEL_COST_MAP: ${SENTINEL_COST_MAP:-}
+      PRICING_CACHE_DIR: /var/lib/sentinel/pricing-cache
+    volumes:
+      - ./deploy/docker/sentinel.yaml:/etc/sentinel/sentinel.yaml:ro
+      - ./rules.d:/srv/sentinel/rules.d:ro
+      - ./slo_defs:/srv/sentinel/slo_defs:ro
+      - ./capacity_defs:/srv/sentinel/capacity_defs:ro
+      - sentinel-data:/var/lib/sentinel
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9099/api/status.json"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  sentinel-ui:
+    image: slo-sentinel:latest
+    container_name: slo-sentinel-ui
+    restart: unless-stopped
+    depends_on:
+      sentinel:
+        condition: service_healthy
+    entrypoint: ["/entrypoint.sh", "/usr/local/bin/sentinel-ui"]
+    command: ["-config", "/etc/sentinel/sentinel-ui.json"]
+    ports:
+      - "127.0.0.1:9098:9098"   # 唯讀 UI——務必置於反向代理認證之後再對外
+    volumes:
+      - ./deploy/docker/sentinel-ui.json:/etc/sentinel/sentinel-ui.json:ro
+    # 覆寫映像的 HEALTHCHECK（那是給 daemon 檢查 9099 用的）
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9098/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  sentinel-data: # SQLite（WAL）＋pricing 快取

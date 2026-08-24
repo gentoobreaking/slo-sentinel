@@ -1,0 +1,13 @@
+# slo-sentinel daemon 容器設定範本（cp 至 deploy/docker/sentinel.yaml 後編輯）
+# 與 docs/sentinel.yaml.example 的差異：位址綁 0.0.0.0（容器內）、路徑指向容器掛載點
+poll_interval_sec: 60
+prometheus_url: http://prometheus:9090      # compose 網路內的 Prometheus；外部請改成實際 URL
+alertmanager_url: http://alertmanager:9093  # 選配：F2b 協調靜默
+telegram_token: ""                          # 建議以 TELEGRAM_TOKEN 環境變數或 secrets 注入
+rules_dir: /srv/sentinel/rules.d
+slo_defs_dir: /srv/sentinel/slo_defs
+capacity_defs_dir: /srv/sentinel/capacity_defs
+db_path: /var/lib/sentinel/sentinel.db
+listen_addr: 0.0.0.0:9099    # 容器內需綁所有介面；對外請經反向代理＋認證
+metrics_addr: 0.0.0.0:9102
+log_format: json

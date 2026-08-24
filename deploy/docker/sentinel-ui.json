@@ -1,0 +1,4 @@
+{
+  "sentinel_api": "http://sentinel:9099",
+  "listen_addr": "0.0.0.0:9098"
+}

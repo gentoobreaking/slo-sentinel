@@ -5,3 +5,5 @@ bin/
 coverage.out
 .env
 .gocache/
+.gocache/
+.gopath/

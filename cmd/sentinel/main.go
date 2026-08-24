@@ -63,7 +63,7 @@ func setupLog(format string) {
 func runDaemon(d *daemon, cfg config.Config) error {
 	// T009：src 與 store 在此建立（gate 之外的元件皆為本地）
 	src := newPrometheusSource(cfg.PrometheusURL)
-	st, err := openStore(filepath.Join(".", cfg.DBPath))
+	st, err := openStore(resolveDBPath(cfg.DBPath))
 	if err != nil {
 		return err
 	}
@@ -74,4 +74,13 @@ func runDaemon(d *daemon, cfg config.Config) error {
 	ctx, cancel := contextWithSignal(context.Background())
 	defer cancel()
 	return d.Run(ctx)
+}
+
+// resolveDBPath 解析 SQLite 路徑：絕對路徑照用（容器部署必需）；
+// 相對路徑維持原本「相對工作目錄」語意。
+func resolveDBPath(p string) string {
+	if filepath.IsAbs(p) {
+		return p
+	}
+	return filepath.Join(".", p)
 }

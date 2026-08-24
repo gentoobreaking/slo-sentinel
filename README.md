@@ -99,6 +99,20 @@ cd slo-sentinel
 make build   # 產出 bin/sentinel bin/sentinel-ui
 ```
 
+### Docker（alpine base，多階段建置）
+
+```bash
+make docker-up      # 建置映像並啟動 daemon + UI（docker compose）
+#   daemon：http://127.0.0.1:9099（JSON API）/ 127.0.0.1:9102（metrics）
+#   UI    ：http://127.0.0.1:9098（唯讀；對外請置於反向代理認證之後）
+make docker-down    # 停止（SQLite/快取保留在 named volume）
+make docker-build   # 只建置映像 slo-sentinel:latest
+```
+
+- 容器設定範本：`deploy/docker/sentinel.yaml`（daemon）、`deploy/docker/sentinel-ui.json`（UI）；
+  掛載點 `/etc/sentinel/`、`/srv/sentinel/{rules.d,slo_defs,capacity_defs}`（唯讀）、`/var/lib/sentinel`（資料卷）
+- 敏感資訊走環境變數（`TELEGRAM_CHAT_ID`、雲端金鑰等），見 `docker-compose.yml` 註解
+
 ## Configuration
 
 `sentinel -config sentinel.yaml`（留空使用全預設值）。範本見
