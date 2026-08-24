@@ -457,8 +457,9 @@ func (d *daemon) Run(ctx context.Context) error {
 			if err := d.runOnePoll(ctx); err != nil {
 				return nil
 			}
-			d.maybeWeeklyCost(ctx, time.Now().UTC()) // 每週成本摘要（§D.5，同 ISO 週去重）
-			d.maybeDailyDigest(ctx, time.Now())      // 每日狀態彙總摘要（T025，同日去重）
+			d.maybeWeeklyCost(ctx, time.Now().UTC())  // 每週成本摘要（§D.5，同 ISO 週去重）
+			d.maybeDailyDigest(ctx, time.Now())       // 每日狀態彙總摘要（T025，同日去重）
+			d.maybePrunePredictions(time.Now().UTC()) // predictions retention 清理（T029，每日一次）
 		case <-wasteTicker.C: // ticker 為 nil 時永不觸發（已停用）
 			d.runWasteScan(ctx)
 		}

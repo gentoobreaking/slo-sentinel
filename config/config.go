@@ -27,6 +27,8 @@ type Config struct {
 	// 每日摘要發送時刻（T025），本地時區 HH:MM；空字串 = 停用。
 	// 環境變數 DAILY_DIGEST=off 停用；DAILY_DIGEST=HH:MM 覆寫時刻
 	DailyDigestTime string `yaml:"daily_digest_time"`
+	// predictions 保留天數（T029）；0 = 停用清理。預設 90 天
+	PredictionsRetentionDays int `yaml:"predictions_retention_days"`
 }
 
 func defaults() Config {
@@ -43,6 +45,8 @@ func defaults() Config {
 		LogFormat:            "json",
 		WasteScanIntervalSec: 6 * 3600, // 預設每 6 小時掃一次 waste（建議 6h～1d）
 		DailyDigestTime:      "09:00",  // 每日摘要預設每日 09:00 本地時區
+
+		PredictionsRetentionDays: 90, // predictions 預設保留 90 天（T029）
 	}
 }
 
@@ -92,6 +96,9 @@ func apply(base *Config, over Config) {
 	setStr(&base.MetricsAddr, over.MetricsAddr)
 	setStr(&base.LogFormat, over.LogFormat)
 	setStr(&base.DailyDigestTime, over.DailyDigestTime)
+	if over.PredictionsRetentionDays > 0 {
+		base.PredictionsRetentionDays = over.PredictionsRetentionDays
+	}
 	if over.WasteScanIntervalSec > 0 {
 		base.WasteScanIntervalSec = over.WasteScanIntervalSec
 	}
@@ -113,6 +120,12 @@ func overrideWasteInterval(cfg *Config, raw map[string]any) {
 	if n, ok := toInt(v); ok && n >= 0 {
 		cfg.WasteScanIntervalSec = n
 	}
+	// predictions_retention_days 同理：明確寫 0 = 停用清理
+	if v, ok := raw["predictions_retention_days"]; ok {
+		if n, ok := toInt(v); ok && n >= 0 {
+			cfg.PredictionsRetentionDays = n
+		}
+	}
 }
 
 func toInt(v any) (int, bool) {
@@ -131,6 +144,9 @@ func (c Config) validate() error {
 	}
 	if c.WasteScanIntervalSec < 0 {
 		return fmt.Errorf("waste_scan_interval_sec 不可為負，得到 %d", c.WasteScanIntervalSec)
+	}
+	if c.PredictionsRetentionDays < 0 {
+		return fmt.Errorf("predictions_retention_days 不可為負，得到 %d", c.PredictionsRetentionDays)
 	}
 	return nil
 }

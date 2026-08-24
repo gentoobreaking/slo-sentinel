@@ -136,3 +136,26 @@ func (s *Store) AllStates() ([]StateRow, error) {
 	}
 	return out, rows.Err()
 }
+
+// PrunePredictions 刪除 predicted_at 早於 cutoff 的預測紀錄（T029 retention）。
+// 回傳刪除列數。之後執行 PRAGMA optimize 收整統計；WAL checkpoint 交由
+// SQLite 自動管理（wal_autocheckpoint 預設開啟）。
+func (s *Store) PrunePredictions(cutoff time.Time) (int64, error) {
+	res, err := s.db.Exec(`DELETE FROM predictions WHERE predicted_at < ?`,
+		cutoff.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	if _, err := s.db.Exec(`PRAGMA optimize`); err != nil {
+		return n, nil // optimize 失敗不影響清理結果
+	}
+	return n, nil
+}
+
+// CountPredictions 回傳預測紀錄總列數（retention 測試與觀測用）。
+func (s *Store) CountPredictions() (int64, error) {
+	var n int64
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM predictions`).Scan(&n)
+	return n, err
+}
