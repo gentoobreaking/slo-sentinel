@@ -174,6 +174,9 @@ compose 已為各服務覆寫，不會互相誤判。`depends_on: condition: ser
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION` | 設定後啟用 AWS 成本感測 |
 | `ALICLOUD_ACCESS_KEY_ID` / `ALICLOUD_ACCESS_KEY_SECRET` | 設定後啟用阿里雲成本感測 |
 | `WASTE_SCAN_INTERVAL_SEC` | 覆寫 waste 掃描週期秒數；`off` / `0` 停用（T024） |
+| `ONCALL_GATE_URL` / `ONCALL_GATE_TOKEN` | 設定後容量預警轉交 ai-oncall 分診（T020；token 即 gate 的 SHARED_SECRET） |
+| `SENTINEL_CLUSTER_NAME` | 分診 alert 的預設 cluster label（per-def cluster 可覆寫） |
+| `SENTINEL_RUNBOOK_URL` | 分診 alert 附帶的 runbook 連結 |
 
 凍結政策（成本約束行為）由 [`docs/freeze-policy.example.yaml`](docs/freeze-policy.example.yaml)
 定義——修改須走 git 審查，「團隊明文同意」即該檔變更被 approve 的事實。

@@ -71,9 +71,14 @@ type daemon struct {
 	tracker     *waste.Tracker         // waste 候選生命週期（T024）；Run 時建立並自 store 還原
 	notifyRetry map[string]*retryState // 感測通知連續失敗追蹤（T026 退避）
 	digestTime  string                 // 每日摘要發送時刻 HH:MM（本地時區）；空 = 停用（T025）
-	billingSrc  billing.BillingSource  // 由環境變數組態；nil = 未啟用
-	pricer      *pricing.Catalog       // estimate 模式單價目錄；nil = 未啟用
-	costMap     []cost.UsageTemplate   // 感測 → 價目家族映射；空 = 未啟用
+
+	publisher       *AMPublisher          // ai-oncall 分診閘門；nil = 未啟用（T020）
+	sensorMeta      map[string]sensorMeta // 感測 → 分診標籤（T020）
+	publishedFiring map[string]bool       // 已轉交 firing 的感測（供 resolved 轉交判定）
+
+	billingSrc billing.BillingSource // 由環境變數組態；nil = 未啟用
+	pricer     *pricing.Catalog      // estimate 模式單價目錄；nil = 未啟用
+	costMap    []cost.UsageTemplate  // 感測 → 價目家族映射；空 = 未啟用
 }
 
 // 通知失敗退避參數（T026）：連續失敗 N 輪後降級為每 M 輪重試一次。
@@ -124,12 +129,17 @@ func newDaemon(cfg config.Config, log *slog.Logger, src query.Source, st *store.
 		}
 	}
 
+	var publisher *AMPublisher
 	var notifier alert.Notifier
 	if cfg.TelegramToken != "" {
 		notifier = alert.NewTelegram(cfg.TelegramToken, telegramChatFromEnv())
 	} else {
 		log.Warn("telegram_token 未設定：通知降級為 log-only")
 		notifier = alert.LogNotifier{}
+	}
+	// 分診閘門（T020）：ONCALL_GATE_URL 設定即啟用容量預警轉交 ai-oncall
+	if u := os.Getenv("ONCALL_GATE_URL"); u != "" {
+		publisher = &AMPublisher{URL: u, Token: os.Getenv("ONCALL_GATE_TOKEN")}
 	}
 	cfg = applyWasteEnvOverride(cfg)
 	// 每日摘要時刻（T025）：DAILY_DIGEST=off 停用；HH:MM 覆寫；未設定用 config 預設
@@ -142,19 +152,22 @@ func newDaemon(cfg config.Config, log *slog.Logger, src query.Source, st *store.
 		}
 	}
 	return &daemon{
-		cfg:         cfg,
-		log:         log,
-		src:         src,
-		st:          st,
-		notifier:    notifier,
-		dedupe:      alert.NewDedupe(),
-		amcoord:     &alert.AMCoord{BaseURL: cfg.AlertManagerURL},
-		metrics:     newMetricsRegistry(),
-		notifyRetry: map[string]*retryState{},
-		digestTime:  cfg.DailyDigestTime,
-		billingSrc:  bill,
-		pricer:      pricer,
-		costMap:     costMap,
+		cfg:             cfg,
+		log:             log,
+		src:             src,
+		st:              st,
+		notifier:        notifier,
+		dedupe:          alert.NewDedupe(),
+		amcoord:         &alert.AMCoord{BaseURL: cfg.AlertManagerURL},
+		metrics:         newMetricsRegistry(),
+		notifyRetry:     map[string]*retryState{},
+		digestTime:      cfg.DailyDigestTime,
+		publisher:       publisher,
+		sensorMeta:      map[string]sensorMeta{},
+		publishedFiring: map[string]bool{},
+		billingSrc:      bill,
+		pricer:          pricer,
+		costMap:         costMap,
 	}
 }
 
@@ -209,6 +222,9 @@ func (d *daemon) setupSensors(ctx context.Context) error {
 	// 可重入：熱載入時重建。先建在區域變數，全部成功才覆寫 d.sensors——
 	// 新檔解析失敗時保留舊感測（T028：與 rules.d 失敗處理一致）。
 	sensors := make([]sensorRunner, 0, len(d.sensors))
+	if d.sensorMeta == nil {
+		d.sensorMeta = map[string]sensorMeta{}
+	}
 	// 容量感測（F8/F9）
 	defs, err := capacity.LoadDefs(d.cfg.CapacityDefsDir)
 	if err != nil {
@@ -220,6 +236,7 @@ func (d *daemon) setupSensors(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		d.sensorMeta[def.ID] = sensorMeta{Scope: def.Scope, Service: def.Service, Cluster: def.Cluster}
 		sensors = append(sensors, sensorRunner{
 			id:     def.ID,
 			kind:   "capacity",
@@ -330,17 +347,23 @@ func (d *daemon) runOnePoll(ctx context.Context) error {
 			// 失敗不推進去重狀態，下一輪自動重試同一轉移；
 			// 連續失敗 ≥N 輪後每 M 輪才重試一次（避免打掛掉的 API）。
 			if !firing && d.dedupe.Peek(f.ID, string(f.State)) && d.allowNotify(f.ID) {
-				msg := formatForecastCard(f)
-				if serr := d.notifier.Send(ctx, msg); serr != nil {
-					d.markNotifyResult(f.ID, serr)
-					rt := d.notifyRetry[f.ID]
-					d.log.Error("notify_failed_will_retry",
-						"sensor", f.ID, "fails", rt.fails,
-						"backoff", rt.fails >= notifyBackoffAfter, "error", serr.Error())
-					d.metrics.Set(fmt.Sprintf("sentinel_notify_failures_total{sensor=%q}", f.ID), float64(rt.fails))
-				} else {
-					d.markNotifyResult(f.ID, nil)
+				// 分診轉交（T020）：容量預警先轉 ai-oncall，成功則本地精簡卡；
+				// handled=true 時去重已由 triageHandled 路徑 Commit。
+				if d.triageHandled(ctx, sr, f) {
 					d.dedupe.Commit(f.ID, string(f.State))
+				} else {
+					msg := formatForecastCard(f)
+					if serr := d.notifier.Send(ctx, msg); serr != nil {
+						d.markNotifyResult(f.ID, serr)
+						rt := d.notifyRetry[f.ID]
+						d.log.Error("notify_failed_will_retry",
+							"sensor", f.ID, "fails", rt.fails,
+							"backoff", rt.fails >= notifyBackoffAfter, "error", serr.Error())
+						d.metrics.Set(fmt.Sprintf("sentinel_notify_failures_total{sensor=%q}", f.ID), float64(rt.fails))
+					} else {
+						d.markNotifyResult(f.ID, nil)
+						d.dedupe.Commit(f.ID, string(f.State))
+					}
 				}
 			}
 			prev, _ := d.st.GetState(f.ID)

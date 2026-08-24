@@ -36,6 +36,12 @@ type Def struct {
 	} `yaml:"metric"`
 	Horizons   []PromDuration     `yaml:"horizons"`   // 空 → budget.DefaultHorizons
 	Thresholds *ThresholdsOverlay `yaml:"thresholds"` // nil → 全預設
+
+	// 分診標籤（T020，皆選配）：轉交 ai-oncall 時帶在 alert labels 上。
+	// service 是 gate 四路 collector 定位服務的唯一鍵；缺省時 gate 降級為全域查詢。
+	Service string `yaml:"service"`
+	Scope   string `yaml:"scope"`   // 如 cloud / k8s / standalone
+	Cluster string `yaml:"cluster"` // 覆寫全域 SENTINEL_CLUSTER_NAME
 }
 
 // HorizonDurations 轉出 budget 引擎用的 []time.Duration。
