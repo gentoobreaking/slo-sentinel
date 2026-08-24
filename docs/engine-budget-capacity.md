@@ -149,6 +149,9 @@ InstantQuery(value) + RangeQuery(過往視窗)
 門檻一律**人工調整**（系統不會自己漂移）；校準依據來自
 `/accuracy` 的命中統計與 ≥30 天運行數據（T019/T021 的前置條件）。
 
+> ⚠️ 現狀：capacity 家族四個門檻皆可 per-sensor 覆寫；budget（SLO）家族
+> 目前鎖定預設值不可調——已列任務 T023，實作後本節同步更新。
+
 ---
 
 ## 7. 與 rules.d 的關係
