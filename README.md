@@ -341,6 +341,8 @@ rules.d 佔建流程（Sloth 整合與社群規則挑選式同步，見上方
 
 ## Documentation
 
+- [`docs/definitions-guide.md`](docs/definitions-guide.md) — **定義手冊（單一權威參考）**：三分鐘決策樹、三目錄全欄位表、指標來源連結、門檻速查、ai-oncall label 契約、常見錯誤對照，附 AI 協作 prompt
+- [`docs/sentinel-gen-guide.md`](docs/sentinel-gen-guide.md) — sentinel-gen 使用手冊：AI 協作產生/審查/驗證定義檔的 CLI
 - [`docs/rule-classification.md`](docs/rule-classification.md) — 規則分類與使用指南（sentinel_kind 判定邏輯全解）
 - [`docs/engine-budget-capacity.md`](docs/engine-budget-capacity.md) — 預算／容量引擎：判斷邏輯與完整資料流
 - [`docs/ci-budget-gate.md`](docs/ci-budget-gate.md) — CD 閘門 CI 接入範例
