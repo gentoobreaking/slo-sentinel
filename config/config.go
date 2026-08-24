@@ -24,6 +24,9 @@ type Config struct {
 	LogFormat       string `yaml:"log_format"`   // json | text
 	// waste 掃描週期（秒，T024）；0 = 完全停用。可用環境變數 WASTE_SCAN_INTERVAL_SEC 覆寫（off/0 停用）
 	WasteScanIntervalSec int `yaml:"waste_scan_interval_sec"`
+	// 每日摘要發送時刻（T025），本地時區 HH:MM；空字串 = 停用。
+	// 環境變數 DAILY_DIGEST=off 停用；DAILY_DIGEST=HH:MM 覆寫時刻
+	DailyDigestTime string `yaml:"daily_digest_time"`
 }
 
 func defaults() Config {
@@ -39,6 +42,7 @@ func defaults() Config {
 		MetricsAddr:          "127.0.0.1:9102",
 		LogFormat:            "json",
 		WasteScanIntervalSec: 6 * 3600, // 預設每 6 小時掃一次 waste（建議 6h～1d）
+		DailyDigestTime:      "09:00",  // 每日摘要預設每日 09:00 本地時區
 	}
 }
 
@@ -87,6 +91,7 @@ func apply(base *Config, over Config) {
 	setStr(&base.ListenAddr, over.ListenAddr)
 	setStr(&base.MetricsAddr, over.MetricsAddr)
 	setStr(&base.LogFormat, over.LogFormat)
+	setStr(&base.DailyDigestTime, over.DailyDigestTime)
 	if over.WasteScanIntervalSec > 0 {
 		base.WasteScanIntervalSec = over.WasteScanIntervalSec
 	}

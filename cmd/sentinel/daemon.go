@@ -69,6 +69,7 @@ type daemon struct {
 	lastCatalog *catalog.Catalog
 	tracker     *waste.Tracker         // waste 候選生命週期（T024）；Run 時建立並自 store 還原
 	notifyRetry map[string]*retryState // 感測通知連續失敗追蹤（T026 退避）
+	digestTime  string                 // 每日摘要發送時刻 HH:MM（本地時區）；空 = 停用（T025）
 	billingSrc  billing.BillingSource  // 由環境變數組態；nil = 未啟用
 	pricer      *pricing.Catalog       // estimate 模式單價目錄；nil = 未啟用
 	costMap     []cost.UsageTemplate   // 感測 → 價目家族映射；空 = 未啟用
@@ -130,6 +131,15 @@ func newDaemon(cfg config.Config, log *slog.Logger, src query.Source, st *store.
 		notifier = alert.LogNotifier{}
 	}
 	cfg = applyWasteEnvOverride(cfg)
+	// 每日摘要時刻（T025）：DAILY_DIGEST=off 停用；HH:MM 覆寫；未設定用 config 預設
+	switch v := os.Getenv("DAILY_DIGEST"); {
+	case v == "off":
+		cfg.DailyDigestTime = ""
+	case v != "":
+		if _, _, ok := parseDigestTime(v); ok {
+			cfg.DailyDigestTime = v
+		}
+	}
 	return &daemon{
 		cfg:         cfg,
 		log:         log,
@@ -140,6 +150,7 @@ func newDaemon(cfg config.Config, log *slog.Logger, src query.Source, st *store.
 		amcoord:     &alert.AMCoord{BaseURL: cfg.AlertManagerURL},
 		metrics:     newMetricsRegistry(),
 		notifyRetry: map[string]*retryState{},
+		digestTime:  cfg.DailyDigestTime,
 		billingSrc:  bill,
 		pricer:      pricer,
 		costMap:     costMap,
@@ -424,6 +435,7 @@ func (d *daemon) Run(ctx context.Context) error {
 				return nil
 			}
 			d.maybeWeeklyCost(ctx, time.Now().UTC()) // 每週成本摘要（§D.5，同 ISO 週去重）
+			d.maybeDailyDigest(ctx, time.Now())      // 每日狀態彙總摘要（T025，同日去重）
 		case <-wasteTicker.C: // ticker 為 nil 時永不觸發（已停用）
 			d.runWasteScan(ctx)
 		}

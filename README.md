@@ -317,8 +317,6 @@ rules.d 佔建流程（Sloth 整合與社群規則挑選式同步，見上方
 
 ## Limitations
 
-- **通知排程未自動化**：每日摘要與每週成本報表的格式已實作，但 daemon 迴圈
-  尚未加入定時觸發（待辦）
 - **status 子命令欄位**：尚未包含規格 §3.3 的預算剩餘% 與 burn rate 欄
 - **成本 adapter**：僅 unblended cost；RI/Savings Plans 攤銷、分層定價、
   即時匯率未支援；對真實雲端 API 的整合僅經 fake server 測試
