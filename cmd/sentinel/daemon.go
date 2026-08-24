@@ -66,11 +66,11 @@ type daemon struct {
 
 	sensors     []sensorRunner
 	lastCatalog *catalog.Catalog
-	tracker     *waste.Tracker        // waste 候選生命週期（T024）；Run 時建立並自 store 還原
+	tracker     *waste.Tracker         // waste 候選生命週期（T024）；Run 時建立並自 store 還原
 	notifyRetry map[string]*retryState // 感測通知連續失敗追蹤（T026 退避）
-	billingSrc  billing.BillingSource // 由環境變數組態；nil = 未啟用
-	pricer      *pricing.Catalog      // estimate 模式單價目錄；nil = 未啟用
-	costMap     []cost.UsageTemplate  // 感測 → 價目家族映射；空 = 未啟用
+	billingSrc  billing.BillingSource  // 由環境變數組態；nil = 未啟用
+	pricer      *pricing.Catalog       // estimate 模式單價目錄；nil = 未啟用
+	costMap     []cost.UsageTemplate   // 感測 → 價目家族映射；空 = 未啟用
 }
 
 // 通知失敗退避參數（T026）：連續失敗 N 輪後降級為每 M 輪重試一次。
@@ -140,8 +140,8 @@ func newDaemon(cfg config.Config, log *slog.Logger, src query.Source, st *store.
 		metrics:     newMetricsRegistry(),
 		notifyRetry: map[string]*retryState{},
 		billingSrc:  bill,
-		pricer:     pricer,
-		costMap:    costMap,
+		pricer:      pricer,
+		costMap:     costMap,
 	}
 }
 
