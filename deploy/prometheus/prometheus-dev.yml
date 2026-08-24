@@ -12,7 +12,7 @@ global:
   scrape_interval: 30s   # 演示用：密一點才看得到斜率
 
 scrape_configs:
-  - job_name: "mock-serverscom"
+  - job_name: "mock-cloud"
     static_configs:
       - targets: ["host.docker.internal:9999"]   # cmd/mock-exporter
   - job_name: "prometheus-self"
