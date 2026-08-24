@@ -1,0 +1,88 @@
+# ============================================================================
+#  K8s / 雲端資源 SLO 與容量感測範本庫（T035）
+#
+#  啟用方式：cp TEMPLATE.k8s-cloud.yaml.example my-infra.yaml → 編輯後即載入
+#
+#  指標來源對照：
+#    kube-state-metrics   → kube_deployment_* / kube_node_status_*
+#    kubelet (cAdvisor)   → kubelet_volume_stats_* / kubelet_running_pods
+#    yace (cloudwatch)    → aws_ec2_* / aws_ebs_* / aws_alb_* / aws_autoscaling_*
+#                           （阿里雲使用者：以 CloudMonitor 對應指標替換）
+#
+#  兩種家族怎麼選：
+#    capacity（capacity_defs）→ 「資源會被耗盡」——ETA 引擎預測觸頂時間
+#    slo（slo_defs）          → 「品質承諾」——錯誤預算燃盡速率
+# ============================================================================
+
+# slos:
+#   ---- K8s Deployment 可用副本（可用性型 SLO）----
+#   # 可用副本低於 spec 副本的缺口視為錯誤；全滅 = 1.0
+#   - id: k8s-api-deployment-availability
+#     service: api
+#     description: "api deployment 可用副本比例 ≥ 99%"
+#     sli_query:
+#       '1 - min(kube_deployment_status_replicas_available{namespace="prod", deployment="api"}
+#        / kube_deployment_spec_replicas{namespace="prod", deployment="api"})'
+#     objective: 99
+#     window_days: 28
+#
+#   - id: k8s-node-notready
+#     service: infra
+#     description: "節點 NotReady 比例 ≤ 0.1%（任一節點異常即燒穿）"
+#     sli_query:
+#       'max(kube_node_status_condition{condition="Ready", status="true"} == 0)'
+#     objective: 99.9
+#     window_days: 7
+#
+#   ---- ALB 可用性（5xx 回應率型 SLO，yace 指標）----
+#   - id: slb-alb-availability
+#     service: edge
+#     description: "ALB 目標端 5xx 比例 < 1% 達成率 99.5%"
+#     sli_query:
+#       '1 - sum(rate(aws_alb_http_code_target_5_xx_count_sum[5m]))
+#        / sum(rate(aws_alb_request_count_sum[5m]))'
+#     objective: 99.5
+#     window_days: 28
+
+# capacity_defs 版寫法（ETA 引擎）：
+# capacity:
+#   ---- K8s PVC 容量（kubelet）----
+#   - id: k8s-pvc-data-volume
+#     service: storage-api
+#     metric:
+#       value:   'max(kubelet_volume_stats_used_bytes{namespace="prod", persistentvolumeclaim="data"})'
+#       ceiling: 'max(kubelet_volume_stats_capacity_bytes{namespace="prod", persistentvolumeclaim="data"})'
+#
+#   ---- K8s 叢集 Pod 數 vs 可分配額（含 maxPods 上限）----
+#   - id: k8s-cluster-pod-capacity
+#     metric:
+#       value:   'sum(kubelet_running_pods)'
+#       ceiling: 'sum(kube_node_status_allocatable{resource="pods"})'
+#
+#   ---- EC2 CPU 飽和度（yace，CloudWatch CPUUtilization 0–100）----
+#   - id: ec2-cpu-saturation
+#     service: app-fleet
+#     metric:
+#       value:   'avg(aws_ec2_cpuutilization_average{tag_monitor="sentinel"})'
+#       ceiling: 'vector(100)'
+#
+#   ---- EBS Burst Balance（gp2 突發餘額耗盡是經典事故）----
+#   - id: ebs-burst-balance
+#     service: db-volumes
+#     metric:
+#       value:   'avg(aws_ebs_burst_balance_average)'   # 0–100%
+#       ceiling: 'vector(100)'
+#
+#   ---- ASG 執行個體數 vs 上限（自動擴容到頂的預警）----
+#   - id: asg-instance-headroom
+#     service: app-fleet
+#     metric:
+#       value:   'max(aws_autoscaling_group_in_service_instances_average{autoscalinggroup_name="app-asg"})'
+#       ceiling: 'aws_autoscaling_group_max_size_average{autoscalinggroup_name="app-asg"}'   # yace 名稱依版本可能不同
+#
+#   ---- SLB/ALB 活動連線數 vs 配置上限 ----
+#   - id: alb-active-connections
+#     service: edge
+#     metric:
+#       value:   'avg(aws_alb_active_connection_count_average)'
+#       ceiling: 'vector(50000)'   # ALB 每個節點上限請依官方文件與部署形態調整

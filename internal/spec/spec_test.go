@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"slo-sentinel/internal/budget"
+
+	"gopkg.in/yaml.v3"
 )
 
 const validYAML = `slos:
@@ -164,9 +166,11 @@ func TestLoadInvalidThresholdCombinations(t *testing.T) {
 // T034：範本庫檔（.example 副檔名）不可被載入。
 func TestLoadIgnoresExampleTemplates(t *testing.T) {
 	dir := writeSLO(t, validYAML)
-	if err := os.WriteFile(filepath.Join(dir, "TEMPLATE.http-service.yaml.example"),
-		[]byte("slos:\n  - id: should-not-load\n"), 0o600); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"TEMPLATE.http-service.yaml.example", "TEMPLATE.k8s-cloud.yaml.example"} {
+		if err := os.WriteFile(filepath.Join(dir, name),
+			[]byte("slos:\n  - id: should-not-load\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	slos, err := Load(dir)
 	if err != nil {
@@ -188,4 +192,26 @@ func ids(slos []SLO) []string {
 		out = append(out, s.ID)
 	}
 	return out
+}
+
+// T035：範本庫去註解後必須是合法 YAML（語法防呆——範本會被使用者複製啟用）。
+func TestTemplateFilesAreValidYAML(t *testing.T) {
+	for _, f := range []string{"TEMPLATE.http-service.yaml.example", "TEMPLATE.k8s-cloud.yaml.example"} {
+		raw, err := os.ReadFile("../../slo_defs/" + f)
+		if err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+		var code []string
+		for _, line := range strings.Split(string(raw), "\n") {
+			t := strings.TrimSpace(line)
+			if t == "" || strings.HasPrefix(t, "#") {
+				continue
+			}
+			code = append(code, line)
+		}
+		var m map[string]any
+		if err := yaml.Unmarshal([]byte(strings.Join(code, "\n")), &m); err != nil {
+			t.Fatalf("%s 去註解後非合法 YAML：%v", f, err)
+		}
+	}
 }
