@@ -285,9 +285,10 @@ git diff && git commit                                      # 審查後生效
 yaml.Node 原位改寫保留註解。上游完整快取在 `.community-upstream/`
 （gitignore，位於載入路徑之外），只有 SELECTED 的服務會進入 `rules.d/community/`。
 
-> 📖 **完整分類學文件**：四種 kind 的判定優先序、waste 掃描執行流程、
-> 自動分類信號細節與決策速查——見
-> [`docs/rule-classification.md`](docs/rule-classification.md)。
+> 📖 **深度文件**：規則分類學見
+> [`docs/rule-classification.md`](docs/rule-classification.md)；
+> budget/capacity 引擎的判斷邏輯與資料流見
+> [`docs/engine-budget-capacity.md`](docs/engine-budget-capacity.md)。
 
 ## Deployment
 
@@ -336,6 +337,9 @@ rules.d 佔建流程（Sloth 整合與社群規則挑選式同步，見上方
 
 ## Documentation
 
+- [`docs/rule-classification.md`](docs/rule-classification.md) — 規則分類與使用指南（sentinel_kind 判定邏輯全解）
+- [`docs/engine-budget-capacity.md`](docs/engine-budget-capacity.md) — 預算／容量引擎：判斷邏輯與完整資料流
+- [`docs/ci-budget-gate.md`](docs/ci-budget-gate.md) — CD 閘門 CI 接入範例
 - [`docs/deploy.md`](docs/deploy.md) — 部署指南
 - [`docs/sentinel.yaml.example`](docs/sentinel.yaml.example) — 設定範本
 - [`docs/freeze-policy.example.yaml`](docs/freeze-policy.example.yaml) — 凍結政策範本

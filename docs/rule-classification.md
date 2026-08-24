@@ -172,6 +172,9 @@ rules.d/k8s-waste.yaml ← 內建 K8sProvider/StandaloneProvider 產出（已預
 
 ---
 
+> 💰 budget/capacity 感測「判定之後」的引擎邏輯與下游功能鏈，
+> 見 [`engine-budget-capacity.md`](engine-budget-capacity.md)。
+
 ## 7. 常用 labels／annotations 速查
 
 | key | 用途 | 適用 |
