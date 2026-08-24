@@ -80,6 +80,9 @@ var migrations = []string{
 		dismiss_until     TEXT NOT NULL DEFAULT '',
 		PRIMARY KEY (sensor_id, resource_id)
 	)`,
+	// v5（T032）：predictions 補存天花板與使用率——歷史列為 NULL
+	`ALTER TABLE predictions ADD COLUMN ceiling REAL`,
+	`ALTER TABLE predictions ADD COLUMN utilization REAL`,
 }
 
 func (s *Store) migrate() error {

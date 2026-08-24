@@ -71,6 +71,8 @@ type Prediction struct {
 	EtaConservative *float64  `json:"eta_conservative"`
 	ActualValue     float64   `json:"actual_value"`    // 預測當下的指標實際值
 	CatalogVersion  string    `json:"catalog_version"` // 感測目錄版本，供調整前後命中率對比
+	Ceiling         *float64  `json:"ceiling"`         // T032：寫入當下的天花板；舊列為 nil
+	Utilization     *float64  `json:"utilization"`     // T032：寫入當下的使用率（0–1）；舊列為 nil
 }
 
 // AppendPrediction 記錄一次預測。
@@ -88,11 +90,19 @@ func (s *Store) AppendPrediction(p Prediction) error {
 	if p.EtaConservative != nil {
 		etaC = *p.EtaConservative
 	}
+	var ceiling, utilization any
+	if p.Ceiling != nil {
+		ceiling = *p.Ceiling
+	}
+	if p.Utilization != nil {
+		utilization = *p.Utilization
+	}
 	res, err := s.db.Exec(`INSERT INTO predictions
-		(sensor_id, predicted_at, eta_aggressive, eta_conservative, actual_value, catalog_version)
-		VALUES(?,?,?,?,?,?)`,
+		(sensor_id, predicted_at, eta_aggressive, eta_conservative, actual_value, catalog_version,
+		 ceiling, utilization)
+		VALUES(?,?,?,?,?,?,?,?)`,
 		p.SensorID, p.PredictedAt.UTC().Format(time.RFC3339Nano),
-		etaA, etaC, p.ActualValue, p.CatalogVersion)
+		etaA, etaC, p.ActualValue, p.CatalogVersion, ceiling, utilization)
 	if err != nil {
 		return err
 	}
@@ -105,7 +115,7 @@ func (s *Store) AppendPrediction(p Prediction) error {
 // ListPredictions 回傳某感測自 since 起的預測紀紀錄（舊→新）。
 func (s *Store) ListPredictions(sensorID string, since time.Time) ([]Prediction, error) {
 	rows, err := s.db.Query(`SELECT id, predicted_at, eta_aggressive, eta_conservative,
-		actual_value, COALESCE(catalog_version,'')
+		actual_value, COALESCE(catalog_version,''), ceiling, utilization
 		FROM predictions WHERE sensor_id = ? AND predicted_at >= ?
 		ORDER BY predicted_at ASC`, sensorID, since.UTC().Format(time.RFC3339Nano))
 	if err != nil {
@@ -116,9 +126,10 @@ func (s *Store) ListPredictions(sensorID string, since time.Time) ([]Prediction,
 	for rows.Next() {
 		var pr Prediction
 		var predAt string
-		var etaA, etaC sql.NullFloat64
+		var etaA, etaC, ceiling, util sql.NullFloat64
 		pr.SensorID = sensorID
-		if err := rows.Scan(&pr.ID, &predAt, &etaA, &etaC, &pr.ActualValue, &pr.CatalogVersion); err != nil {
+		if err := rows.Scan(&pr.ID, &predAt, &etaA, &etaC, &pr.ActualValue, &pr.CatalogVersion,
+			&ceiling, &util); err != nil {
 			return nil, err
 		}
 		pr.PredictedAt, _ = time.Parse(time.RFC3339Nano, predAt)
@@ -129,6 +140,14 @@ func (s *Store) ListPredictions(sensorID string, since time.Time) ([]Prediction,
 		if etaC.Valid {
 			v := etaC.Float64
 			pr.EtaConservative = &v
+		}
+		if ceiling.Valid {
+			v := ceiling.Float64
+			pr.Ceiling = &v
+		}
+		if util.Valid {
+			v := util.Float64
+			pr.Utilization = &v
 		}
 		out = append(out, pr)
 	}

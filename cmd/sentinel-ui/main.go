@@ -145,6 +145,7 @@ func handleSloDetail(cfg uiConfig) http.HandlerFunc {
 				EtaConservative *float64 `json:"eta_conservative"`
 				ActualValue     float64  `json:"actual_value"`
 				CatalogVersion  string   `json:"catalog_version"`
+				Utilization     *float64 `json:"utilization"`
 			} `json:"predictions"`
 		}
 		if err := fetchJSON(r.Context(), cfg.SentinelAPI+"/api/slo/"+id, &detail); err != nil {
@@ -158,9 +159,13 @@ func handleSloDetail(cfg uiConfig) http.HandlerFunc {
 		var rows strings.Builder
 		catVer := ""
 		for _, p := range detail.Predictions {
-			fmt.Fprintf(&rows, "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",
+			util := "—"
+			if p.Utilization != nil {
+				util = fmt.Sprintf("%.1f%%", *p.Utilization*100)
+			}
+			fmt.Fprintf(&rows, "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",
 				fmtGMT8(p.PredictedAt), humanDur(p.EtaAggressive), humanDur(p.EtaConservative),
-				thousandSep(p.ActualValue))
+				thousandSep(p.ActualValue), util)
 			if p.CatalogVersion != "" {
 				catVer = p.CatalogVersion
 			}
@@ -171,7 +176,7 @@ func handleSloDetail(cfg uiConfig) http.HandlerFunc {
 		}
 		body := fmt.Sprintf("<h2>%s</h2><p>狀態：%s</p>"+
 			"<table border='1' cellpadding='4'><tr><th>預測時間</th><th>激進預估（1 小時速率）</th>"+
-			"<th>穩健預估（最長窗速率）</th><th>當下用量</th></tr>\n%s</table>%s",
+			"<th>穩健預估（最長窗速率）</th><th>當下用量</th><th>當下使用率</th></tr>\n%s</table>%s",
 			id, stateStr, rows.String(), note)
 		page(w, "感測詳情："+id, body)
 	}

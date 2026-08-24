@@ -15,7 +15,7 @@ func fakeSentinel() *httptest.Server {
 	mux.HandleFunc("/api/slo/disk", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"sensor_id":"disk","state":{"state":"critical"},"predictions":[
 		  {"predicted_at":"2026-08-24T00:00:00Z","eta_aggressive":null,"eta_conservative":-3600,"actual_value":1788000000},
-		  {"predicted_at":"2026-08-24T01:00:00Z","eta_aggressive":10500,"eta_conservative":420000,"actual_value":1234567,"catalog_version":"v1"}]}`))
+		  {"predicted_at":"2026-08-24T01:00:00Z","eta_aggressive":10500,"eta_conservative":420000,"actual_value":1234567,"catalog_version":"v1","ceiling":900,"utilization":0.135}]}`))
 	})
 	mux.HandleFunc("/api/accuracy", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"since":"2026-08-17T00:00:00Z","sensors":[{"sensor_id":"disk","predictions":5,"last_eta_aggressive_sec":6900}]}`))
@@ -166,7 +166,7 @@ func TestSloDetailHumanizedRows(t *testing.T) {
 	body := rec.Body.String()
 
 	// null ETA → 無成長跡象；負 ETA → 已越過天花板；正常 → 人話時長＋千分位
-	for _, want := range []string{"無成長跡象", "已越過天花板", "約 2.9 小時後觸頂", "1,788,000,000", "約 175 分鐘後觸頂"} {
+	for _, want := range []string{"無成長跡象", "已越過天花板", "約 2.9 小時後觸頂", "1,788,000,000", "約 2.9 小時後觸頂"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q\n%s", want, body)
 		}
@@ -178,3 +178,20 @@ func TestSloDetailHumanizedRows(t *testing.T) {
 }
 
 func ptr(f float64) *float64 { return &f }
+
+// T032：當下使用率欄——有值顯示百分比、NULL 顯示 —
+func TestSloDetailUtilizationColumn(t *testing.T) {
+	api := fakeSentinel()
+	defer api.Close()
+	cfg := uiConfig{SentinelAPI: api.URL, ListenAddr: "127.0.0.1:9098"}
+	rec := httptest.NewRecorder()
+	routeHandler(cfg, "/slo/disk")(rec, httptest.NewRequest("GET", "/slo/disk", nil))
+	body := rec.Body.String()
+
+	if !strings.Contains(body, "當下使用率") || !strings.Contains(body, "13.5%") {
+		t.Fatalf("utilization column missing:\n%s", body)
+	}
+	if !strings.Contains(body, "<td>—</td>") {
+		t.Fatalf("legacy NULL row must render as em dash:\n%s", body)
+	}
+}

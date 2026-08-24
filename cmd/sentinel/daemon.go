@@ -325,7 +325,9 @@ func (d *daemon) runOnePoll(ctx context.Context) error {
 				d.log.Error("sensor_poll_failed", "sensor", sr.id, "error", err.Error())
 				return
 			}
-			// 記錄預測（/accuracy 自評資料源）；目錄版本供調整前後命中率對比
+			// 記錄預測（/accuracy 自評資料源）；目錄版本供調整前後命中率對比；
+			// ceiling/utilization 供 UI 顯示當下使用率（T032）
+			ceiling, utilization := f.Ceiling, f.Utilization
 			if err := d.st.AppendPrediction(store.Prediction{
 				SensorID:        f.ID,
 				PredictedAt:     f.Now,
@@ -333,6 +335,8 @@ func (d *daemon) runOnePoll(ctx context.Context) error {
 				EtaConservative: f.EtaConservative,
 				ActualValue:     f.Value,
 				CatalogVersion:  d.catalogVersion(),
+				Ceiling:         &ceiling,
+				Utilization:     &utilization,
 			}); err != nil {
 				d.log.Error("append_prediction_failed", "sensor", f.ID, "error", err.Error())
 			}
