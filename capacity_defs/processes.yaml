@@ -1,0 +1,13 @@
+# 行程數量感測（node_exporter）——基本範本（T033）
+#
+# 天花板是「人工配額」語意：300 僅為示例值，請依主機定位與 pid 上限調整
+# （參考：cat /proc/sys/kernel/pid_max）。
+
+sensors:
+  - id: dev-process-count
+    desc: "執行中行程數 vs 配額"
+    service: infra
+    scope: k8s
+    metric:
+      value:   'max(node_procs_running)'
+      ceiling: 'vector(300)'

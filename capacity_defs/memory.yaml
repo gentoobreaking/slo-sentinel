@@ -1,0 +1,14 @@
+# 記憶體用量感測（node_exporter）——基本範本（T033）
+#
+# used = Total − Available（Available 已扣除可回收的 page cache，
+#        比直接用 free 準確）。used/total 是天然的「消耗量 vs 天花板」。
+# 依賴：node_exporter 的 meminfo collector（預設啟用）。
+
+sensors:
+  - id: dev-mem-used
+    desc: "主機記憶體用量"
+    service: infra
+    scope: k8s
+    metric:
+      value:   'max(node_memory_MemTotal_bytes) - max(node_memory_MemAvailable_bytes)'
+      ceiling: 'max(node_memory_MemTotal_bytes)'

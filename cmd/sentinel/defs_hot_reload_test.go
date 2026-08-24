@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"slo-sentinel/config"
+	"slo-sentinel/internal/capacity"
 )
 
 func TestSetupSensorsKeepsOldOnBadDefs(t *testing.T) {
@@ -64,5 +65,26 @@ func TestSetupSensorsKeepsOldOnBadDefs(t *testing.T) {
 	}
 	if len(d.sensors) != before {
 		t.Fatalf("healthy rebuild mismatch: %d vs %d", len(d.sensors), before)
+	}
+}
+
+// T033：基本範本集解析——六顆感測、id 無重複。
+func TestBasicSensorTemplatesParse(t *testing.T) {
+	defs, err := capacity.LoadDefs("../../capacity_defs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]bool{}
+	for _, d := range defs {
+		if ids[d.ID] {
+			t.Fatalf("duplicate sensor id: %s", d.ID)
+		}
+		ids[d.ID] = true
+	}
+	for _, want := range []string{"dev-mem-used", "dev-cpu-busy", "dev-disk-io-busy",
+		"dev-net-throughput", "dev-process-count", "dev-root-disk"} {
+		if !ids[want] {
+			t.Fatalf("template sensor %s missing, got %v", want, ids)
+		}
 	}
 }

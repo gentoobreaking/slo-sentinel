@@ -1,0 +1,13 @@
+# 磁碟 I/O 飽和度感測（node_exporter）——基本範本（T033）
+#
+# io_time 佔比：每顆裝置 busy 時間比例，avg 取平均。天花板恆為 1。
+# 多顆磁碟並行時 avg 會低估整體壓力——需要更精細請改 per-device 或 P95。
+
+sensors:
+  - id: dev-disk-io-busy
+    desc: "磁碟 I/O 忙碌比例（5m 平均）"
+    service: infra
+    scope: k8s
+    metric:
+      value:   'avg(rate(node_disk_io_time_seconds_total[5m]))'
+      ceiling: 'vector(1)'

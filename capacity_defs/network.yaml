@@ -1,0 +1,15 @@
+# 網路吞吐量感測（node_exporter）——基本範本（T033）
+#
+# bits/s vs 網卡標稱速度。注意：
+#   - node_network_speed_bytes 在部分 VM/雲端網卡上不存在 → 本感測會輪詢失敗
+#     （僅記錯誤日誌，不影響其他感測）；替代做法：ceiling 改固定頻寬，如 vector(125000000) = 1Gbps
+#   - device 排除 lo/veth 避免容器虛擬介面灌爆數值
+
+sensors:
+  - id: dev-net-throughput
+    desc: "網路吞吐量（收＋送，5m 平均）vs 網卡速度"
+    service: infra
+    scope: k8s
+    metric:
+      value:   'sum(rate(node_network_receive_bytes_total{device!~"lo|veth.*"}[5m]) + rate(node_network_transmit_bytes_total{device!~"lo|veth.*"}[5m]))'
+      ceiling: 'sum(node_network_speed_bytes{device!~"lo|veth.*"}) * 8'
