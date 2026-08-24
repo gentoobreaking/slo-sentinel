@@ -80,6 +80,16 @@ services:
     volumes:
       - ./deploy/prometheus/prometheus-dev.yml:/etc/prometheus/prometheus.yml:ro
 
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: slo-alertmanager
+    profiles: ["dev"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9093:9093"
+    volumes:
+      - ./deploy/prometheus/alertmanager-dev.yml:/etc/alertmanager/alertmanager.yml:ro
+
   node-exporter:
     image: prom/node-exporter:latest
     container_name: slo-node-exporter

@@ -228,13 +228,17 @@ make build         # 產出 bin/ 並於 CI 驗證 ≤20MB
 docker compose --profile dev up -d --build
 ```
 
-啟動的四個容器：`slo-sentinel`、`slo-sentinel-ui`、`slo-prometheus`（:9090）、
-`slo-node-exporter`（:9100）。相關檔案：
+啟動的五個容器：`slo-sentinel`、`slo-sentinel-ui`、`slo-prometheus`（:9090）、
+`slo-node-exporter`（:9100）、`slo-alertmanager`（:9093，F2b 協調靜默查詢用）。
+相關檔案：
 
 - `deploy/prometheus/prometheus-dev.yml`——Prometheus 設定（抓 node-exporter＋自我監控）
 - `capacity_defs/node-disk.yaml`——真實磁碟感測 `dev-root-disk`
   （used = size − free；node_exporter 沒有 used_bytes 指標，需相減；
   fstype 過濾跨環境通用，容器 VM 內也適用）
+- `slo_defs/example.yaml`——示例 SLO（錯誤預算燃盡感測 `node-exporter-up`）
+- `rules.d/example-rules.yaml`——Prometheus rules 格式示例（含分類 label 說明）
+- `deploy/prometheus/alertmanager-dev.yml`——AM 最小設定（只開 API 不外寄）
 
 驗證步驟（等約 1 分鐘讓 Prometheus 抓到兩個樣本後）：
 

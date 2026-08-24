@@ -1,0 +1,25 @@
+# rules.d 示例——標準 Prometheus rules 格式（sentinel 感測目錄的基底格式）
+#
+# sentinel 對此目錄：熱載入、失敗整檔隔離、依 labels 分類路由：
+#   labels 有 sloth_*            → budget 家族（Sloth 生成的 SLO 規則）
+#   labels sentinel_kind: waste  → waste 家族
+#   其餘                          → 載入但不路由（KindNone，僅供目錄完整性）
+#
+# 本檔為「不路由」的示例——展示格式與 promtool 相容性；
+# 正式規則來源：
+#   1. Sloth 生成：sloth generate -i slo_defs/api.yaml -o rules.d/sloth-generated/api.yaml
+#   2. 上游同步：scripts/sync-community.sh（awesome-prometheus-alerts）
+
+groups:
+  - name: example-node
+    rules:
+      - record: job:up:avg
+        expr: avg(up{job="node-exporter"})
+      - alert: ExampleNodeExporterDown
+        expr: up{job="node-exporter"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          sentinel_kind: capacity   # 示範分類標籤；實務上靜態告警走 AlertManager
+        annotations:
+          summary: "node_exporter 已停止回應超過 5 分鐘"

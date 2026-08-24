@@ -1,0 +1,17 @@
+# 示例 SLO——本機測試環境（dev profile）用
+#
+# sentinel 直接讀取本檔做「錯誤預算燃盡」預測：
+#   sli_query 回傳錯誤率（值域 [0,1]），objective 為 SLO 目標（如 99.9），
+#   錯誤預算比 = (100 − objective)/100，餵入與容量感測同一顆 ETA 引擎。
+#
+# 此示例用 node_exporter 存活率造一個「幾乎永不燒穿」的錯誤率：
+#   1 − avg(up) = 0（node-exporter 掛掉才會 >0）→ 適合驗證管線、不會吵。
+# 正式環境：換成你服務的真實 SLI（如 5xx 比例），或改用 Sloth 生成 rules。
+
+slos:
+  - id: node-exporter-up
+    service: infra
+    description: "示例：node_exporter 存活率 99.9%（本機測試用）"
+    sli_query: '1 - avg(up{job="node-exporter"})'
+    objective: 99.9
+    window_days: 28

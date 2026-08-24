@@ -167,7 +167,15 @@ func (d *daemon) setupSensors(ctx context.Context) error {
 			poll: func(c context.Context) (budget.Forecast, error) {
 				now := time.Now().UTC()
 				window := promdur.Parse(fmt.Sprintf("%dd", slo.WindowDays))
-				res, err := d.src.RangeQuery(c, slo.SLIQuery, now.Add(-window), now, time.Minute)
+				// 步長自適應：Prometheus range query 上限 11,000 點/序列——
+				// 28d 視窗 × 1m 步長 = 40,320 點會被拒（400 bad_data）。
+				// 長視窗自動放寬步長，短視窗維持 1m。
+				step := window / 10000
+				step = step / time.Second * time.Second // 截斷到整秒——Prometheus 不接受 4m1.92s 這類帶小數的 step
+				if step < time.Minute {
+					step = time.Minute
+				}
+				res, err := d.src.RangeQuery(c, slo.SLIQuery, now.Add(-window), now, step)
 				if err != nil {
 					return budget.Forecast{}, err
 				}
@@ -195,7 +203,7 @@ func (d *daemon) setupSensors(ctx context.Context) error {
 					Value:    value,
 					Ceiling:  budgetRatio, // 錯誤預算比 = (100−objective)/100
 					Samples:  samples,
-					Interval: time.Minute,
+					Interval: step,
 					Th:       budget.DefaultThresholds(),
 				})
 			},

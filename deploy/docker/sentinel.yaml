@@ -2,7 +2,7 @@
 # 與 docs/sentinel.yaml.example 的差異：位址綁 0.0.0.0（容器內）、路徑指向容器掛載點
 poll_interval_sec: 60
 prometheus_url: http://prometheus:9090      # compose 網路內的 Prometheus；外部請改成實際 URL
-alertmanager_url: http://alertmanager:9093  # 選配：F2b 協調靜默
+alertmanager_url: http://alertmanager:9093  # dev profile 內建；正式環境指向你的 AM
 telegram_token: ""                          # 建議以 TELEGRAM_TOKEN 環境變數或 secrets 注入
 rules_dir: /srv/sentinel/rules.d
 slo_defs_dir: /srv/sentinel/slo_defs

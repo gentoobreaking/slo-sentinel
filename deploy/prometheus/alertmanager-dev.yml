@@ -1,0 +1,15 @@
+# 本機測試用 AlertManager 最小設定——只開 API，不外寄任何通知
+#
+# sentinel 只用它做 F2b「協調靜默」查詢：靜態告警已 firing 的感測，
+# sentinel 就不重複直推 Telegram（避免雙路轟炸）。
+#
+# 正式環境的 AM 應配置真正的路由/receiver（Telegram、Slack…）。
+
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: "null"          # 全部丟進空 receiver——本機測試不外寄
+
+receivers:
+  - name: "null"
