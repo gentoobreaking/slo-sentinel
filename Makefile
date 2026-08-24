@@ -12,6 +12,7 @@ DOCKER     ?= docker
 build:
 	go build -o bin/sentinel ./cmd/sentinel
 	go build -o bin/sentinel-ui ./cmd/sentinel-ui
+	go build -o bin/sentinel-gen ./cmd/sentinel-gen
 
 test:
 	go test ./...
